@@ -66,6 +66,31 @@ You get a clean, date-wise, column-wise report of all slips and payments in that
 
 ---
 
+## "AI is busy (rate limit)" — and how to make it disappear
+
+Google's **free** Gemini tier only allows a small number of images per minute. If you upload many slips at once, you'll hit that cap and see "AI is busy."
+
+Two things now handle this:
+
+1. **The app auto-waits and retries** on its own. If a few images show "busy," just click **Retry failed** at the top — it re-runs only those, no re-uploading.
+2. **Add a second free provider** so the app instantly switches when Gemini is busy. The best one is **Groq** — it's free, very fast, and has much higher limits.
+
+### Add Groq (recommended — kills the rate-limit problem)
+
+1. Go to **https://console.groq.com/keys** → sign in → **Create API Key** → copy it (starts with `gsk_…`).
+2. In **Vercel → your project → Settings → Environment Variables**, add:
+   - **Name:** `GROQ_API_KEY`  **Value:** your `gsk_…` key (no quotes), Production ✓ → **Save**.
+3. **Redeploy** (Deployments → ⋯ → Redeploy), same as before.
+
+### Add OpenRouter (optional third backup)
+
+1. Go to **https://openrouter.ai/keys** → sign in → **Create Key** → copy (starts with `sk-or-…`).
+2. In Vercel add `OPENROUTER_API_KEY` = your key (no quotes), Production ✓ → **Save** → **Redeploy**.
+
+With Gemini + Groq both set, the app uses Gemini first and falls back to Groq the instant Gemini is busy — so large batches go through smoothly.
+
+> Model names can change over time. If a provider suddenly errors, you can set `GROQ_MODEL` or `OPENROUTER_MODEL` in Vercel to a current vision model from that provider's docs. Defaults are sensible for now.
+
 ## Troubleshooting
 
 - **"AI is not configured yet"** → the `GEMINI_API_KEY` isn't set, or Vercel wasn't redeployed after adding it. Redo Step 2 (and remember the Redeploy).

@@ -55,9 +55,13 @@ export function DocumentUploader() {
 
   async function readAll() {
     setRunning(true);
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     // Process sequentially to stay within rate limits and memory.
+    let first = true;
     for (const it of items) {
       if (it.status !== "queued") continue;
+      if (!first) await sleep(1000); // small gap between images
+      first = false;
       update(it.id, { status: "processing" });
       const fd = new FormData();
       fd.append("file", it.file);
@@ -82,7 +86,20 @@ export function DocumentUploader() {
     setRunning(false);
   }
 
+  function retryFailed() {
+    setItems((prev) =>
+      prev.map((it) =>
+        it.status === "error"
+          ? { ...it, status: "queued", error: undefined }
+          : it
+      )
+    );
+    // Give state a tick to update, then re-run.
+    setTimeout(() => void readAll(), 50);
+  }
+
   const queuedCount = items.filter((i) => i.status === "queued").length;
+  const errorCount = items.filter((i) => i.status === "error").length;
 
   return (
     <div className="space-y-5">
@@ -112,21 +129,40 @@ export function DocumentUploader() {
         </CardContent>
       </Card>
 
-      {queuedCount > 0 && (
-        <div className="flex items-center justify-between rounded-md border bg-muted/40 p-3">
+      {(queuedCount > 0 || errorCount > 0) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 p-3">
           <span className="text-sm">
-            {queuedCount} image{queuedCount > 1 ? "s" : ""} ready
-          </span>
-          <Button onClick={readAll} disabled={running}>
-            {running ? (
+            {queuedCount > 0 && (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Reading…
+                {queuedCount} image{queuedCount > 1 ? "s" : ""} ready
               </>
-            ) : (
-              <>Read with AI</>
             )}
-          </Button>
+            {errorCount > 0 && (
+              <span className="text-destructive">
+                {queuedCount > 0 ? " · " : ""}
+                {errorCount} failed
+              </span>
+            )}
+          </span>
+          <div className="flex gap-2">
+            {errorCount > 0 && (
+              <Button variant="outline" onClick={retryFailed} disabled={running}>
+                Retry failed
+              </Button>
+            )}
+            {queuedCount > 0 && (
+              <Button onClick={readAll} disabled={running}>
+                {running ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Reading…
+                  </>
+                ) : (
+                  <>Read with AI</>
+                )}
+              </Button>
+            )}
+          </div>
         </div>
       )}
 
