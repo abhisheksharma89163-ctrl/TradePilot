@@ -26,7 +26,7 @@ export default async function DayBookPage({
 
   const [{ data: company }, { data: slips }, { data: payments }, { data: expenses }, { data: parties }, { data: cats }] =
     await Promise.all([
-      supabase.from("companies").select("name").eq("id", companyId).single(),
+      supabase.from("companies").select("name, settings").eq("id", companyId).single(),
       supabase
         .from("weighment_slips")
         .select("slip_date, slip_number, slip_type, custom_fields")
@@ -102,6 +102,10 @@ export default async function DayBookPage({
 
       <DayBookView
         companyName={company?.name ?? "Company"}
+        signatureUrl={
+          ((company?.settings as Record<string, unknown>)?.signature as string) ??
+          null
+        }
         from={from}
         to={to}
         entries={entries}

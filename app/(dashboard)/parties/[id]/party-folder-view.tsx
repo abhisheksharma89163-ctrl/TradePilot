@@ -5,6 +5,7 @@ import { Printer, FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatINR } from "@/lib/utils";
 import { toCsv, downloadFile } from "@/lib/csv";
+import { SignatureBlock } from "@/components/shared/signature-block";
 
 export interface FolderSlip {
   slip_date: string;
@@ -45,12 +46,14 @@ export interface PartyInfo {
 
 export function PartyFolderView({
   companyName,
+  signatureUrl,
   party,
   slips,
   payments,
   ledger,
 }: {
   companyName: string;
+  signatureUrl?: string | null;
   party: PartyInfo;
   slips: FolderSlip[];
   payments: FolderPayment[];
@@ -240,13 +243,7 @@ export function PartyFolderView({
           </table>
         </section>
 
-        <div className="flex justify-end pt-10">
-          <div className="text-center">
-            <div className="mb-1 border-t border-foreground px-8 pt-1" />
-            <p className="text-sm font-medium">For {companyName}</p>
-            <p className="text-xs text-muted-foreground">Authorised Signatory</p>
-          </div>
-        </div>
+        <SignatureBlock companyName={companyName} signatureUrl={signatureUrl} />
       </div>
     </div>
   );

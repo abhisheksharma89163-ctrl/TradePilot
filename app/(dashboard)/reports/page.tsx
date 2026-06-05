@@ -26,7 +26,7 @@ export default async function ReportsPage({
 
   const [{ data: company }, { data: slips }, { data: payments }, { data: parties }] =
     await Promise.all([
-      supabase.from("companies").select("name").eq("id", companyId).single(),
+      supabase.from("companies").select("name, settings").eq("id", companyId).single(),
       supabase
         .from("weighment_slips")
         .select(
@@ -76,6 +76,10 @@ export default async function ReportsPage({
 
       <ReportView
         companyName={company?.name ?? "Company"}
+        signatureUrl={
+          ((company?.settings as Record<string, unknown>)?.signature as string) ??
+          null
+        }
         from={from}
         to={to}
         slips={(slips ?? []) as unknown as SlipRow[]}

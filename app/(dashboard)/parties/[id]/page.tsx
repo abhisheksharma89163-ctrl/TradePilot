@@ -34,7 +34,7 @@ export default async function PartyFolderPage({
 
   const [{ data: company }, { data: slips }, { data: payments }, { data: ledger }] =
     await Promise.all([
-      supabase.from("companies").select("name").eq("id", companyId).single(),
+      supabase.from("companies").select("name, settings").eq("id", companyId).single(),
       supabase
         .from("weighment_slips")
         .select("slip_date, slip_number, vehicle_number, net_weight_kg, custom_fields")
@@ -74,6 +74,10 @@ export default async function PartyFolderPage({
 
       <PartyFolderView
         companyName={company?.name ?? "Company"}
+        signatureUrl={
+          ((company?.settings as Record<string, unknown>)?.signature as string) ??
+          null
+        }
         party={party as unknown as PartyInfo}
         slips={(slips ?? []) as unknown as FolderSlip[]}
         payments={(payments ?? []) as unknown as FolderPayment[]}
