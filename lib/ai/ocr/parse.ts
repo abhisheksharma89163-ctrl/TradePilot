@@ -38,4 +38,38 @@ export function parseExtraction(text: string): ExtractionResult {
   };
 }
 
+/** Parse a model's text response into an ARRAY of ExtractionResults. */
+export function parseExtractionArray(text: string): ExtractionResult[] {
+  let cleaned = text.trim();
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  }
+  if (!cleaned.startsWith("[")) {
+    const start = cleaned.indexOf("[");
+    const end = cleaned.lastIndexOf("]");
+    if (start !== -1 && end !== -1) cleaned = cleaned.slice(start, end + 1);
+  }
+
+  let arr: unknown;
+  try {
+    arr = JSON.parse(cleaned);
+  } catch {
+    // Maybe the model returned a single object — wrap it.
+    return [parseExtraction(text)];
+  }
+  if (!Array.isArray(arr)) return [parseExtraction(text)];
+
+  return arr.map((item) => {
+    const p = item as ExtractionResult;
+    return {
+      document_type: p.document_type ?? "other",
+      classification_confidence: p.classification_confidence ?? 0,
+      document_date: p.document_date ?? null,
+      fields: p.fields ?? {},
+      remarks: p.remarks ?? null,
+      raw_text: p.raw_text ?? null,
+    };
+  });
+}
+
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

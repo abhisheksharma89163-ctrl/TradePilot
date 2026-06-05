@@ -2,7 +2,8 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Trash2, Search } from "lucide-react";
+import Link from "next/link";
+import { Pencil, Trash2, Search, FileText } from "lucide-react";
 import { toast } from "sonner";
 import type { Party } from "@/lib/supabase/database.types";
 import { deleteParty } from "./actions";
@@ -73,7 +74,7 @@ export function PartiesTable({ parties }: { parties: Party[] }) {
               <TableHead className="hidden sm:table-cell">Phone</TableHead>
               <TableHead className="hidden lg:table-cell">City</TableHead>
               <TableHead className="text-right">Opening</TableHead>
-              <TableHead className="w-[90px]" />
+              <TableHead className="w-[130px]" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -127,6 +128,11 @@ export function PartiesTable({ parties }: { parties: Party[] }) {
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-1">
+                      <Button variant="ghost" size="icon" asChild title="Statement">
+                        <Link href={`/parties/${p.id}`}>
+                          <FileText className="h-4 w-4" />
+                        </Link>
+                      </Button>
                       <PartyForm
                         party={p}
                         trigger={

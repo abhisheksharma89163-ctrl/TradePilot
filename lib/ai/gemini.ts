@@ -1,5 +1,5 @@
 import "server-only";
-import { extractWithFallback } from "./providers";
+import { extractWithFallback, extractTextWithFallback } from "./providers";
 import { AiError } from "./ocr/parse";
 import type { ExtractionResult } from "./ocr/types";
 
@@ -16,6 +16,13 @@ export async function extractFromImage(
   mimeType: string
 ): Promise<ExtractionResult> {
   return extractWithFallback(base64, mimeType);
+}
+
+/** Reads one or more entries from pasted text. */
+export async function extractFromText(
+  pastedText: string
+): Promise<ExtractionResult[]> {
+  return extractTextWithFallback(pastedText);
 }
 
 /** Back-compat alias used by server actions. */

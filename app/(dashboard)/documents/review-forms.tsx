@@ -1,17 +1,17 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useEffect, useTransition } from "react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Save } from "lucide-react";
+import { CheckCircle2, Save, AlertTriangle } from "lucide-react";
 import type { ExtractionResult } from "@/lib/ai/ocr/types";
-import { saveWeighmentSlip, savePayment } from "./actions";
+import { saveWeighmentSlip, savePayment, checkDuplicates } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { cn, formatINR } from "@/lib/utils";
 
 function val(ex: ExtractionResult, key: string): string {
   const v = ex.fields[key]?.value;
@@ -19,6 +19,26 @@ function val(ex: ExtractionResult, key: string): string {
 }
 function flagged(ex: ExtractionResult, key: string): boolean {
   return (ex.fields[key]?.confidence ?? 0) < 80;
+}
+
+function DuplicateBanner({ matches }: { matches: string[] }) {
+  if (matches.length === 0) return null;
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-yellow-500 bg-yellow-50 p-2 text-sm text-yellow-800 dark:bg-yellow-950/30 dark:text-yellow-300">
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+      <div>
+        <p className="font-medium">Possible duplicate</p>
+        {matches.map((m, i) => (
+          <p key={i} className="text-xs">
+            {m}
+          </p>
+        ))}
+        <p className="mt-1 text-xs opacity-80">
+          You can still Save if this is a genuinely new entry.
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function ReviewField({
@@ -74,9 +94,37 @@ export function WeighmentReviewForm({
   const [pending, startTransition] = useTransition();
   const [gross, setGross] = useState(val(extraction, "gross_weight_kg"));
   const [tare, setTare] = useState(val(extraction, "tare_weight_kg"));
+  const [rate, setRate] = useState(val(extraction, "rate"));
+  const [amount, setAmount] = useState("");
+  const [dupes, setDupes] = useState<string[]>([]);
 
-  const net =
-    gross && tare ? (Number(gross) - Number(tare)).toLocaleString("en-IN") : "—";
+  const netNum =
+    gross !== "" && tare !== "" ? Number(gross) - Number(tare) : null;
+  const net = netNum != null ? netNum.toLocaleString("en-IN") : "—";
+
+  // Auto-fill amount = net × rate whenever those change.
+  useEffect(() => {
+    const r = Number(rate);
+    if (netNum != null && Number.isFinite(r) && r > 0) {
+      setAmount((netNum * r).toFixed(2));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gross, tare, rate]);
+
+  // Duplicate check on mount.
+  useEffect(() => {
+    checkDuplicates({
+      kind: "weighment",
+      slip_date: extraction.document_date ?? undefined,
+      slip_number: val(extraction, "slip_number") || undefined,
+      vehicle_number: val(extraction, "vehicle_number") || undefined,
+      net_weight:
+        val(extraction, "net_weight_kg") !== ""
+          ? Number(val(extraction, "net_weight_kg"))
+          : netNum ?? undefined,
+    }).then((r) => setDupes(r.matches));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -95,10 +143,10 @@ export function WeighmentReviewForm({
 
   return (
     <form onSubmit={onSubmit} className="space-y-4">
-      {documentId && (
-        <input type="hidden" name="document_id" value={documentId} />
-      )}
+      {documentId && <input type="hidden" name="document_id" value={documentId} />}
       <input type="hidden" name="slip_type" value="purchase" />
+
+      <DuplicateBanner matches={dupes} />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <ReviewField
@@ -132,12 +180,6 @@ export function WeighmentReviewForm({
           name="product_name"
           defaultValue={val(extraction, "product_name") || "Bhusa"}
           isFlagged={flagged(extraction, "product_name")}
-        />
-        <ReviewField
-          label="Rate"
-          name="rate"
-          defaultValue={val(extraction, "rate")}
-          isFlagged={flagged(extraction, "rate")}
         />
 
         <div className="space-y-1.5">
@@ -173,6 +215,36 @@ export function WeighmentReviewForm({
           <div className="flex h-10 items-center rounded-md border bg-muted px-3 text-sm font-semibold">
             {net}
           </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="rate">Rate (₹/kg)</Label>
+          <Input
+            id="rate"
+            name="rate"
+            inputMode="decimal"
+            value={rate}
+            onChange={(e) => setRate(e.target.value)}
+            className={cn(
+              flagged(extraction, "rate") &&
+                "border-yellow-500 bg-yellow-50 dark:bg-yellow-950/30"
+            )}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="amount">Amount (₹) — auto = net × rate</Label>
+          <Input
+            id="amount"
+            name="amount"
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+          {amount && (
+            <p className="text-xs text-muted-foreground">
+              {formatINR(Number(amount))}
+            </p>
+          )}
         </div>
         <ReviewField
           label="Bags / Packets"
@@ -211,6 +283,21 @@ export function PaymentReviewForm({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [dupes, setDupes] = useState<string[]>([]);
+
+  useEffect(() => {
+    checkDuplicates({
+      kind: "payment",
+      payment_date: extraction.document_date ?? undefined,
+      amount:
+        val(extraction, "amount") !== ""
+          ? Number(val(extraction, "amount"))
+          : undefined,
+      cheque_number: val(extraction, "cheque_number") || undefined,
+      utr_number: val(extraction, "utr_number") || undefined,
+    }).then((r) => setDupes(r.matches));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -229,10 +316,10 @@ export function PaymentReviewForm({
 
   return (
     <form onSubmit={onSubmit} className="space-y-4">
-      {documentId && (
-        <input type="hidden" name="document_id" value={documentId} />
-      )}
+      {documentId && <input type="hidden" name="document_id" value={documentId} />}
       <input type="hidden" name="payment_type" value="made" />
+
+      <DuplicateBanner matches={dupes} />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <ReviewField
@@ -312,7 +399,7 @@ export function SavedCard() {
       <CheckCircle2 className="h-10 w-10 text-emerald-500" />
       <p className="font-medium">Saved to your records</p>
       <p className="text-sm text-muted-foreground">
-        View it in Reports or the relevant module.
+        View it in Reports or the party&apos;s statement.
       </p>
     </div>
   );

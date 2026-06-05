@@ -4,8 +4,10 @@ import crypto from "crypto";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireActiveCompany } from "@/lib/auth/company";
-import { extractFromImage, GeminiError } from "@/lib/ai/gemini";
+import { extractFromImage, extractFromText, GeminiError } from "@/lib/ai/gemini";
 import type { ExtractionResult } from "@/lib/ai/ocr/types";
+
+type SB = Awaited<ReturnType<typeof createClient>>;
 
 export interface ProcessResult {
   ok: boolean;
@@ -16,11 +18,9 @@ export interface ProcessResult {
   duplicate?: boolean;
 }
 
-/**
- * Step 1 of the pipeline: upload the image, run OCR, store the document
- * row, and return the extracted fields for the user to review.
- * Does NOT create business records yet — that happens on confirm.
- */
+// ============================================================
+// STEP 1 (image): upload + OCR + store document, return fields
+// ============================================================
 export async function processDocument(
   formData: FormData
 ): Promise<ProcessResult> {
@@ -29,14 +29,11 @@ export async function processDocument(
     const supabase = await createClient();
 
     const file = formData.get("file");
-    if (!(file instanceof File)) {
-      return { ok: false, error: "No file received." };
-    }
+    if (!(file instanceof File)) return { ok: false, error: "No file received." };
 
     const bytes = Buffer.from(await file.arrayBuffer());
     const hash = crypto.createHash("sha256").update(bytes).digest("hex");
 
-    // Duplicate check — same image uploaded before?
     const { data: existing } = await supabase
       .from("documents")
       .select("id")
@@ -52,20 +49,16 @@ export async function processDocument(
     const { error: uploadError } = await supabase.storage
       .from("documents")
       .upload(path, bytes, { contentType: mime, upsert: false });
-    if (uploadError) {
-      return { ok: false, error: `Upload failed: ${uploadError.message}` };
-    }
+    if (uploadError) return { ok: false, error: `Upload failed: ${uploadError.message}` };
 
     const { data: signed } = await supabase.storage
       .from("documents")
-      .createSignedUrl(path, 60 * 60); // 1 hour preview link
+      .createSignedUrl(path, 60 * 60);
 
-    // Run OCR
     let extraction: ExtractionResult;
     try {
       extraction = await extractFromImage(bytes.toString("base64"), mime);
     } catch (e) {
-      // Still record the upload so it isn't lost; mark failed.
       await supabase.from("documents").insert({
         company_id: companyId,
         file_name: file.name,
@@ -76,10 +69,9 @@ export async function processDocument(
         file_hash: hash,
         uploaded_by: userId,
         ocr_status: "failed",
-        ocr_provider: "gemini",
+        ocr_provider: "ai",
       });
-      const msg =
-        e instanceof GeminiError ? e.message : "AI processing failed.";
+      const msg = e instanceof GeminiError ? e.message : "AI processing failed.";
       return { ok: false, error: msg };
     }
 
@@ -101,7 +93,7 @@ export async function processDocument(
         uploaded_by: userId,
         document_date: extraction.document_date,
         ocr_status: "completed",
-        ocr_provider: "gemini",
+        ocr_provider: "ai",
         ocr_confidence: extraction.classification_confidence,
         ocr_raw_text: extraction.raw_text,
         ocr_extracted: extraction as unknown as Record<string, unknown>,
@@ -114,9 +106,8 @@ export async function processDocument(
       .select("id")
       .single();
 
-    if (docError || !doc) {
+    if (docError || !doc)
       return { ok: false, error: docError?.message ?? "Could not save document." };
-    }
 
     revalidatePath("/documents");
     return {
@@ -131,40 +122,97 @@ export async function processDocument(
   }
 }
 
-// ------------------------------------------------------------
-// Helpers: find-or-create party / vehicle / product
-// ------------------------------------------------------------
+// ============================================================
+// STEP 1 (text): parse pasted text into one or many entries
+// ============================================================
+export interface TextEntry {
+  documentId?: string;
+  extraction: ExtractionResult;
+}
+export interface ProcessTextResult {
+  ok: boolean;
+  error?: string;
+  entries?: TextEntry[];
+}
+
+export async function processText(text: string): Promise<ProcessTextResult> {
+  try {
+    if (!text || text.trim().length < 3)
+      return { ok: false, error: "Paste some slip text first." };
+
+    const { companyId, userId } = await requireActiveCompany();
+    const supabase = await createClient();
+
+    let results: ExtractionResult[];
+    try {
+      results = await extractFromText(text);
+    } catch (e) {
+      const msg = e instanceof GeminiError ? e.message : "AI processing failed.";
+      return { ok: false, error: msg };
+    }
+
+    const entries: TextEntry[] = [];
+    for (const extraction of results) {
+      const { data: doc } = await supabase
+        .from("documents")
+        .insert({
+          company_id: companyId,
+          file_name: "Pasted text",
+          file_path: `text/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          file_type: "text",
+          uploaded_by: userId,
+          document_date: extraction.document_date,
+          ocr_status: "completed",
+          ocr_provider: "ai-text",
+          ocr_raw_text: extraction.raw_text ?? text,
+          ocr_extracted: extraction as unknown as Record<string, unknown>,
+          doc_type: extraction.document_type,
+        })
+        .select("id")
+        .single();
+      entries.push({ documentId: doc?.id, extraction });
+    }
+
+    revalidatePath("/documents");
+    return { ok: true, entries };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+// ============================================================
+// Helpers: find-or-create with fuzzy party matching
+// ============================================================
 async function findOrCreateParty(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: SB,
   companyId: string,
   name: string,
   asType: "customer" | "supplier"
-): Promise<string | null> {
+): Promise<{ id: string | null; name: string }> {
   const clean = name.trim();
-  if (!clean) return null;
-  const { data: found } = await supabase
-    .from("parties")
-    .select("id")
-    .eq("company_id", companyId)
-    .ilike("name", clean)
-    .limit(1)
-    .maybeSingle();
-  if (found) return found.id;
+  if (!clean) return { id: null, name: clean };
+
+  // Smart fuzzy match: "Satish Sharma" ≈ "Satish Sarma".
+  const { data: matchId } = await supabase.rpc("match_party", {
+    p_company: companyId,
+    p_name: clean,
+  });
+  if (matchId) return { id: matchId as string, name: clean };
 
   const { data: created } = await supabase
     .from("parties")
     .insert({ company_id: companyId, name: clean, type: [asType] })
     .select("id")
     .single();
-  return created?.id ?? null;
+  return { id: created?.id ?? null, name: clean };
 }
 
 async function findOrCreateVehicle(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: SB,
   companyId: string,
   number: string
 ): Promise<string | null> {
-  const clean = number.trim().toUpperCase();
+  const clean = number.trim().toUpperCase().replace(/\s+/g, " ");
   if (!clean) return null;
   const { data: found } = await supabase
     .from("vehicles")
@@ -174,7 +222,6 @@ async function findOrCreateVehicle(
     .limit(1)
     .maybeSingle();
   if (found) return found.id;
-
   const { data: created } = await supabase
     .from("vehicles")
     .insert({ company_id: companyId, vehicle_number: clean })
@@ -184,7 +231,7 @@ async function findOrCreateVehicle(
 }
 
 async function findOrCreateProduct(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: SB,
   companyId: string,
   name: string
 ): Promise<string | null> {
@@ -198,7 +245,6 @@ async function findOrCreateProduct(
     .limit(1)
     .maybeSingle();
   if (found) return found.id;
-
   const { data: created } = await supabase
     .from("products")
     .insert({ company_id: companyId, name: clean, unit: "KG" })
@@ -217,12 +263,137 @@ function str(v: FormDataEntryValue | null): string | null {
   return s === "" ? null : s;
 }
 
+// ============================================================
+// Content-based duplicate detection
+// ============================================================
+export interface DuplicateCheck {
+  kind: "weighment" | "payment";
+  slip_date?: string;
+  slip_number?: string;
+  vehicle_number?: string;
+  net_weight?: number;
+  payment_date?: string;
+  amount?: number;
+  cheque_number?: string;
+  utr_number?: string;
+}
+
+export async function checkDuplicates(
+  input: DuplicateCheck
+): Promise<{ matches: string[] }> {
+  try {
+    const { companyId } = await requireActiveCompany();
+    const supabase = await createClient();
+    const matches: string[] = [];
+
+    if (input.kind === "weighment" && input.slip_date) {
+      const { data } = await supabase
+        .from("weighment_slips")
+        .select("slip_number, slip_date, vehicle_number, net_weight_kg")
+        .eq("company_id", companyId)
+        .eq("slip_date", input.slip_date);
+      for (const s of data ?? []) {
+        const sameSlip =
+          input.slip_number &&
+          s.slip_number &&
+          s.slip_number.toLowerCase() === input.slip_number.toLowerCase();
+        const sameTruckWeight =
+          input.vehicle_number &&
+          s.vehicle_number &&
+          s.vehicle_number.toUpperCase().replace(/\s+/g, "") ===
+            input.vehicle_number.toUpperCase().replace(/\s+/g, "") &&
+          input.net_weight != null &&
+          s.net_weight_kg != null &&
+          Math.abs(Number(s.net_weight_kg) - input.net_weight) < 5;
+        if (sameSlip)
+          matches.push(`Slip #${s.slip_number} already saved on ${s.slip_date}`);
+        else if (sameTruckWeight)
+          matches.push(
+            `${s.vehicle_number} with net ${s.net_weight_kg}kg already saved on ${s.slip_date}`
+          );
+      }
+    }
+
+    if (input.kind === "payment") {
+      let q = supabase
+        .from("payments")
+        .select("payment_date, amount, cheque_number, utr_number, payment_number")
+        .eq("company_id", companyId);
+      if (input.cheque_number) q = q.eq("cheque_number", input.cheque_number);
+      const { data } = await q;
+      for (const p of data ?? []) {
+        if (
+          input.utr_number &&
+          p.utr_number &&
+          p.utr_number === input.utr_number
+        )
+          matches.push(`UTR ${p.utr_number} already recorded (${p.payment_number})`);
+        else if (input.cheque_number && p.cheque_number === input.cheque_number)
+          matches.push(
+            `Cheque ${p.cheque_number} already recorded (${p.payment_number})`
+          );
+        else if (
+          input.amount != null &&
+          input.payment_date &&
+          Number(p.amount) === input.amount &&
+          p.payment_date === input.payment_date
+        )
+          matches.push(`₹${p.amount} on ${p.payment_date} already recorded`);
+      }
+    }
+
+    return { matches: Array.from(new Set(matches)) };
+  } catch {
+    return { matches: [] };
+  }
+}
+
+// ============================================================
+// Ledger helper — double-entry posting
+// ============================================================
+async function postLedger(
+  supabase: SB,
+  companyId: string,
+  userId: string,
+  rows: {
+    date: string;
+    account_type: string;
+    account_id: string;
+    account_name: string;
+    entry_type: "debit" | "credit";
+    amount: number;
+    narration?: string;
+    reference_type?: string;
+    reference_id?: string;
+    reference_number?: string;
+  }[]
+) {
+  await supabase.from("ledger_entries").insert(
+    rows.map((r) => ({
+      company_id: companyId,
+      entry_date: r.date,
+      account_type: r.account_type,
+      account_id: r.account_id,
+      account_name: r.account_name,
+      entry_type: r.entry_type,
+      amount: r.amount,
+      narration: r.narration ?? null,
+      reference_type: r.reference_type ?? null,
+      reference_id: r.reference_id ?? null,
+      reference_number: r.reference_number ?? null,
+      created_by: userId,
+    }))
+  );
+}
+
 export interface SaveResult {
   ok: boolean;
   error?: string;
 }
 
-/** Step 2a: confirmed weighment slip -> create slip + party/vehicle/product. */
+// ============================================================
+// STEP 2a: save weighment slip (+ purchase + ledger + balance)
+// ============================================================
 export async function saveWeighmentSlip(
   formData: FormData
 ): Promise<SaveResult> {
@@ -233,14 +404,14 @@ export async function saveWeighmentSlip(
     const slipDate = str(formData.get("slip_date"));
     if (!slipDate) return { ok: false, error: "Slip date is required." };
 
-    const partyName = str(formData.get("party_name"));
+    const partyNameRaw = str(formData.get("party_name"));
     const vehicleNumber = str(formData.get("vehicle_number"));
     const productName = str(formData.get("product_name"));
     const documentId = str(formData.get("document_id"));
 
-    const partyId = partyName
-      ? await findOrCreateParty(supabase, companyId, partyName, "supplier")
-      : null;
+    const party = partyNameRaw
+      ? await findOrCreateParty(supabase, companyId, partyNameRaw, "supplier")
+      : { id: null as string | null, name: "" };
     const vehicleId = vehicleNumber
       ? await findOrCreateVehicle(supabase, companyId, vehicleNumber)
       : null;
@@ -248,8 +419,12 @@ export async function saveWeighmentSlip(
       ? await findOrCreateProduct(supabase, companyId, productName)
       : null;
 
-    const rate = str(formData.get("rate"));
+    const rate = num(formData.get("rate"));
     const bags = num(formData.get("bags_count"));
+    const gross = num(formData.get("gross_weight_kg"));
+    const tare = num(formData.get("tare_weight_kg"));
+    const net = gross != null && tare != null ? gross - tare : null;
+    const amount = num(formData.get("amount"));
 
     const { data: slip, error } = await supabase
       .from("weighment_slips")
@@ -258,18 +433,19 @@ export async function saveWeighmentSlip(
         slip_number: str(formData.get("slip_number")),
         slip_date: slipDate,
         slip_type: str(formData.get("slip_type")) ?? "purchase",
-        party_id: partyId,
+        party_id: party.id,
         vehicle_id: vehicleId,
         vehicle_number: vehicleNumber,
         product_id: productId,
-        gross_weight_kg: num(formData.get("gross_weight_kg")),
-        tare_weight_kg: num(formData.get("tare_weight_kg")),
+        gross_weight_kg: gross,
+        tare_weight_kg: tare,
         remarks: str(formData.get("remarks")),
         document_id: documentId,
         custom_fields: {
           rate: rate ?? undefined,
           bags_count: bags ?? undefined,
-          party_name: partyName ?? undefined,
+          amount: amount ?? undefined,
+          party_name: partyNameRaw ?? undefined,
           product_name: productName ?? undefined,
         },
         created_by: userId,
@@ -278,6 +454,62 @@ export async function saveWeighmentSlip(
       .single();
 
     if (error) return { ok: false, error: error.message };
+
+    // If an amount is present, create a purchase entry + ledger postings.
+    if (slip && amount != null && amount > 0 && party.id) {
+      const { data: entryNumber } = await supabase.rpc("next_entry_number", {
+        p_company: companyId,
+        p_prefix: "PUR",
+        p_table: "purchase_entries",
+      });
+
+      const { data: purchase } = await supabase
+        .from("purchase_entries")
+        .insert({
+          company_id: companyId,
+          entry_number: (entryNumber as string) ?? `PUR-${Date.now()}`,
+          entry_date: slipDate,
+          supplier_id: party.id,
+          vehicle_id: vehicleId,
+          weighment_slip_id: slip.id,
+          product_id: productId,
+          quantity_kg: net,
+          rate_per_kg: rate,
+          total_amount: amount,
+          balance_due: amount,
+          payment_status: "pending",
+          created_by: userId,
+        })
+        .select("id, entry_number")
+        .single();
+
+      // Double entry: supplier credited (we owe them), purchases debited.
+      await postLedger(supabase, companyId, userId, [
+        {
+          date: slipDate,
+          account_type: "party",
+          account_id: party.id,
+          account_name: party.name,
+          entry_type: "credit",
+          amount,
+          narration: `Purchase ${productName ?? ""} ${net ?? ""}kg`.trim(),
+          reference_type: "purchase_entry",
+          reference_id: purchase?.id,
+          reference_number: purchase?.entry_number,
+        },
+        {
+          date: slipDate,
+          account_type: "purchase",
+          account_id: productId ?? companyId,
+          account_name: productName ?? "Purchases",
+          entry_type: "debit",
+          amount,
+          reference_type: "purchase_entry",
+          reference_id: purchase?.id,
+          reference_number: purchase?.entry_number,
+        },
+      ]);
+    }
 
     if (documentId && slip) {
       await supabase
@@ -289,13 +521,16 @@ export async function saveWeighmentSlip(
 
     revalidatePath("/documents");
     revalidatePath("/reports");
+    revalidatePath("/parties");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
 }
 
-/** Step 2b: confirmed payment (cheque/UTR) -> create payment record. */
+// ============================================================
+// STEP 2b: save payment (+ ledger so party balance updates)
+// ============================================================
 export async function savePayment(formData: FormData): Promise<SaveResult> {
   try {
     const { companyId, userId } = await requireActiveCompany();
@@ -306,12 +541,13 @@ export async function savePayment(formData: FormData): Promise<SaveResult> {
     const amount = num(formData.get("amount"));
     if (amount == null) return { ok: false, error: "Amount is required." };
 
-    const partyName = str(formData.get("party_name"));
+    const partyNameRaw = str(formData.get("party_name"));
     const documentId = str(formData.get("document_id"));
-    const partyId = partyName
-      ? await findOrCreateParty(supabase, companyId, partyName, "supplier")
-      : null;
+    const party = partyNameRaw
+      ? await findOrCreateParty(supabase, companyId, partyNameRaw, "supplier")
+      : { id: null as string | null, name: "" };
 
+    const paymentType = str(formData.get("payment_type")) ?? "made";
     const year = new Date(paymentDate).getFullYear();
     const paymentNumber = `PAY-${year}-${Date.now().toString().slice(-6)}`;
 
@@ -321,8 +557,8 @@ export async function savePayment(formData: FormData): Promise<SaveResult> {
         company_id: companyId,
         payment_number: paymentNumber,
         payment_date: paymentDate,
-        payment_type: str(formData.get("payment_type")) ?? "made",
-        party_id: partyId,
+        payment_type: paymentType,
+        party_id: party.id,
         amount,
         payment_mode: str(formData.get("payment_mode")),
         cheque_number: str(formData.get("cheque_number")),
@@ -338,6 +574,25 @@ export async function savePayment(formData: FormData): Promise<SaveResult> {
 
     if (error) return { ok: false, error: error.message };
 
+    // Ledger: payment made -> debit supplier (we owe less); credit bank/cash.
+    if (payment && party.id) {
+      const isMade = paymentType === "made";
+      await postLedger(supabase, companyId, userId, [
+        {
+          date: paymentDate,
+          account_type: "party",
+          account_id: party.id,
+          account_name: party.name,
+          entry_type: isMade ? "debit" : "credit",
+          amount,
+          narration: `Payment ${isMade ? "made" : "received"} ${paymentNumber}`,
+          reference_type: "payment",
+          reference_id: payment.id,
+          reference_number: paymentNumber,
+        },
+      ]);
+    }
+
     if (documentId && payment) {
       await supabase
         .from("documents")
@@ -348,6 +603,7 @@ export async function savePayment(formData: FormData): Promise<SaveResult> {
 
     revalidatePath("/documents");
     revalidatePath("/reports");
+    revalidatePath("/parties");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: (e as Error).message };

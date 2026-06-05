@@ -1,7 +1,7 @@
 import { format } from "date-fns";
 import { createClient } from "@/lib/supabase/server";
 import { requireActiveCompany } from "@/lib/auth/company";
-import { DocumentUploader } from "./uploader";
+import { DocumentsTabs } from "./documents-tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -31,12 +31,12 @@ export default async function DocumentsPage() {
       <div>
         <h1 className="text-2xl font-semibold">Documents</h1>
         <p className="text-sm text-muted-foreground">
-          Upload slip photos — the AI reads them and fills the entry. You review
-          and save.
+          Upload slip photos or paste text — the AI reads it and fills the
+          entry. You review and save.
         </p>
       </div>
 
-      <DocumentUploader />
+      <DocumentsTabs />
 
       <Card>
         <CardHeader>

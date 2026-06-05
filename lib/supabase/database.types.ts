@@ -313,6 +313,82 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["payments"]["Insert"]>;
         Relationships: [];
       };
+      purchase_entries: {
+        Row: {
+          id: string;
+          company_id: string;
+          entry_number: string;
+          entry_date: string;
+          supplier_id: string | null;
+          vehicle_id: string | null;
+          weighment_slip_id: string | null;
+          product_id: string | null;
+          quantity_kg: number | null;
+          rate_per_kg: number | null;
+          total_amount: number;
+          balance_due: number | null;
+          payment_status: string;
+          notes: string | null;
+          created_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          entry_number: string;
+          entry_date: string;
+          supplier_id?: string | null;
+          vehicle_id?: string | null;
+          weighment_slip_id?: string | null;
+          product_id?: string | null;
+          quantity_kg?: number | null;
+          rate_per_kg?: number | null;
+          total_amount: number;
+          balance_due?: number | null;
+          payment_status?: string;
+          notes?: string | null;
+          created_by?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["purchase_entries"]["Insert"]>;
+        Relationships: [];
+      };
+      ledger_entries: {
+        Row: {
+          id: string;
+          company_id: string;
+          entry_date: string;
+          account_type: string;
+          account_id: string;
+          account_name: string;
+          entry_type: string;
+          amount: number;
+          narration: string | null;
+          reference_type: string | null;
+          reference_id: string | null;
+          reference_number: string | null;
+          is_opening: boolean;
+          created_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          entry_date: string;
+          account_type: string;
+          account_id: string;
+          account_name: string;
+          entry_type: string;
+          amount: number;
+          narration?: string | null;
+          reference_type?: string | null;
+          reference_id?: string | null;
+          reference_number?: string | null;
+          is_opening?: boolean;
+          created_by?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["ledger_entries"]["Insert"]>;
+        Relationships: [];
+      };
       documents: {
         Row: {
           id: string;
@@ -381,6 +457,14 @@ export interface Database {
         Args: { target_company: string };
         Returns: boolean;
       };
+      match_party: {
+        Args: { p_company: string; p_name: string };
+        Returns: string | null;
+      };
+      next_entry_number: {
+        Args: { p_company: string; p_prefix: string; p_table: string };
+        Returns: string;
+      };
     };
     Enums: { [_ in never]: never };
     CompositeTypes: { [_ in never]: never };
@@ -404,3 +488,5 @@ export type Vehicle = Tables<"vehicles">;
 export type WeighmentSlip = Tables<"weighment_slips">;
 export type Payment = Tables<"payments">;
 export type DocumentRow = Tables<"documents">;
+export type PurchaseEntry = Tables<"purchase_entries">;
+export type LedgerEntry = Tables<"ledger_entries">;

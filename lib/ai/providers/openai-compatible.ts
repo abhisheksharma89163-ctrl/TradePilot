@@ -1,5 +1,10 @@
-import { OCR_PROMPT } from "../ocr/prompt";
-import { AiError, RateLimitError, parseExtraction } from "../ocr/parse";
+import { OCR_PROMPT, OCR_TEXT_PROMPT } from "../ocr/prompt";
+import {
+  AiError,
+  RateLimitError,
+  parseExtraction,
+  parseExtractionArray,
+} from "../ocr/parse";
 import type { ExtractionResult } from "../ocr/types";
 
 export interface OpenAICompatOptions {
@@ -61,4 +66,41 @@ export async function extractOpenAICompatible(
   const text = data.choices?.[0]?.message?.content;
   if (!text) throw new AiError(`${opts.name} returned an empty result.`);
   return parseExtraction(text);
+}
+
+/** Same endpoint, but extracts MANY entries from pasted text. */
+export async function extractOpenAICompatibleText(
+  pastedText: string,
+  opts: OpenAICompatOptions
+): Promise<ExtractionResult[]> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${opts.apiKey}`,
+  };
+  if (opts.referer) {
+    headers["HTTP-Referer"] = opts.referer;
+    headers["X-Title"] = "BOS Trading ERP";
+  }
+
+  const res = await fetch(`${opts.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model: opts.model,
+      temperature: 0,
+      messages: [
+        { role: "user", content: OCR_TEXT_PROMPT + "\n\nPASTED TEXT:\n" + pastedText },
+      ],
+    }),
+  });
+
+  if (res.status === 429) throw new RateLimitError(`${opts.name} rate limit`);
+  if (!res.ok) throw new AiError(`${opts.name} error (${res.status}).`);
+
+  const data = (await res.json()) as {
+    choices?: { message?: { content?: string } }[];
+  };
+  const text = data.choices?.[0]?.message?.content;
+  if (!text) throw new AiError(`${opts.name} returned an empty result.`);
+  return parseExtractionArray(text);
 }
