@@ -404,13 +404,21 @@ export async function saveWeighmentSlip(
     const slipDate = str(formData.get("slip_date"));
     if (!slipDate) return { ok: false, error: "Slip date is required." };
 
+    const slipType = str(formData.get("slip_type")) === "sale" ? "sale" : "purchase";
+    const isSale = slipType === "sale";
+
     const partyNameRaw = str(formData.get("party_name"));
     const vehicleNumber = str(formData.get("vehicle_number"));
     const productName = str(formData.get("product_name"));
     const documentId = str(formData.get("document_id"));
 
     const party = partyNameRaw
-      ? await findOrCreateParty(supabase, companyId, partyNameRaw, "supplier")
+      ? await findOrCreateParty(
+          supabase,
+          companyId,
+          partyNameRaw,
+          isSale ? "customer" : "supplier"
+        )
       : { id: null as string | null, name: "" };
     const vehicleId = vehicleNumber
       ? await findOrCreateVehicle(supabase, companyId, vehicleNumber)
@@ -437,7 +445,7 @@ export async function saveWeighmentSlip(
         company_id: companyId,
         slip_number: str(formData.get("slip_number")),
         slip_date: slipDate,
-        slip_type: str(formData.get("slip_type")) ?? "purchase",
+        slip_type: slipType,
         party_id: party.id,
         vehicle_id: vehicleId,
         vehicle_number: vehicleNumber,
@@ -463,20 +471,93 @@ export async function saveWeighmentSlip(
 
     if (error) return { ok: false, error: error.message };
 
-    // If a goods value is present, create a purchase entry + ledger postings.
-    if (slip && amount != null && amount > 0 && party.id) {
+    const status =
+      balanceDue != null && balanceDue <= 0
+        ? "paid"
+        : advance > 0 || freight > 0
+          ? "partial"
+          : "pending";
+
+    // SALE: create a sale entry + receivable ledger (customer owes us).
+    if (slip && isSale && amount != null && amount > 0 && party.id) {
+      const { data: entryNumber } = await supabase.rpc("next_entry_number", {
+        p_company: companyId,
+        p_prefix: "SAL",
+        p_table: "sale_entries",
+      });
+      const { data: sale } = await supabase
+        .from("sale_entries")
+        .insert({
+          company_id: companyId,
+          entry_number: (entryNumber as string) ?? `SAL-${Date.now()}`,
+          entry_date: slipDate,
+          customer_id: party.id,
+          vehicle_id: vehicleId,
+          weighment_slip_id: slip.id,
+          product_id: productId,
+          quantity_kg: net,
+          rate_per_kg: rate,
+          freight,
+          advance_received: advance,
+          total_amount: amount,
+          balance_due: balanceDue ?? amount,
+          payment_status: status,
+          due_date: dueDate,
+          created_by: userId,
+        })
+        .select("id, entry_number")
+        .single();
+
+      const rows = [
+        {
+          date: slipDate,
+          account_type: "party",
+          account_id: party.id,
+          account_name: party.name,
+          entry_type: "debit" as const,
+          amount,
+          narration: `Sale ${productName ?? ""} ${net ?? ""}kg`.trim(),
+          reference_type: "sale_entry",
+          reference_id: sale?.id,
+          reference_number: sale?.entry_number,
+        },
+      ];
+      if (freight > 0)
+        rows.push({
+          date: slipDate,
+          account_type: "party",
+          account_id: party.id,
+          account_name: party.name,
+          entry_type: "credit" as const,
+          amount: freight,
+          narration: "Freight adjusted",
+          reference_type: "sale_entry",
+          reference_id: sale?.id,
+          reference_number: sale?.entry_number,
+        });
+      if (advance > 0)
+        rows.push({
+          date: slipDate,
+          account_type: "party",
+          account_id: party.id,
+          account_name: party.name,
+          entry_type: "credit" as const,
+          amount: advance,
+          narration: "Advance received",
+          reference_type: "sale_entry",
+          reference_id: sale?.id,
+          reference_number: sale?.entry_number,
+        });
+      await postLedger(supabase, companyId, userId, rows);
+    }
+
+    // PURCHASE: create a purchase entry + payable ledger (we owe supplier).
+    if (slip && !isSale && amount != null && amount > 0 && party.id) {
       const { data: entryNumber } = await supabase.rpc("next_entry_number", {
         p_company: companyId,
         p_prefix: "PUR",
         p_table: "purchase_entries",
       });
-
-      const status =
-        balanceDue != null && balanceDue <= 0
-          ? "paid"
-          : advance > 0 || freight > 0
-            ? "partial"
-            : "pending";
 
       const { data: purchase } = await supabase
         .from("purchase_entries")

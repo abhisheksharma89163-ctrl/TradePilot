@@ -123,6 +123,86 @@ export async function repostPurchaseLedger(
   await postLedger(supabase, companyId, userId, rows);
 }
 
+/**
+ * Re-creates party ledger lines for one SALE entry: customer DEBITED for
+ * the goods (receivable), CREDITED for freight + advance received.
+ */
+export async function repostSaleLedger(
+  supabase: SB,
+  companyId: string,
+  userId: string,
+  saleId: string
+) {
+  const { data: se } = await supabase
+    .from("sale_entries")
+    .select(
+      "id, entry_number, entry_date, customer_id, total_amount, freight, advance_received, quantity_kg"
+    )
+    .eq("id", saleId)
+    .eq("company_id", companyId)
+    .single();
+  if (!se || !se.customer_id) return;
+
+  await supabase
+    .from("ledger_entries")
+    .delete()
+    .eq("company_id", companyId)
+    .eq("reference_type", "sale_entry")
+    .eq("reference_id", saleId);
+
+  const { data: party } = await supabase
+    .from("parties")
+    .select("name")
+    .eq("id", se.customer_id)
+    .single();
+  const name = party?.name ?? "Party";
+
+  const rows: LedgerRowInput[] = [
+    {
+      date: se.entry_date,
+      account_type: "party",
+      account_id: se.customer_id,
+      account_name: name,
+      entry_type: "debit",
+      amount: Number(se.total_amount),
+      narration: `Sale ${se.quantity_kg ?? ""}kg`.trim(),
+      reference_type: "sale_entry",
+      reference_id: se.id,
+      reference_number: se.entry_number,
+    },
+  ];
+  const freight = Number(se.freight ?? 0);
+  const advance = Number(se.advance_received ?? 0);
+  if (freight > 0)
+    rows.push({
+      date: se.entry_date,
+      account_type: "party",
+      account_id: se.customer_id,
+      account_name: name,
+      entry_type: "credit",
+      amount: freight,
+      narration: "Freight adjusted",
+      reference_type: "sale_entry",
+      reference_id: se.id,
+      reference_number: se.entry_number,
+    });
+  if (advance > 0)
+    rows.push({
+      date: se.entry_date,
+      account_type: "party",
+      account_id: se.customer_id,
+      account_name: name,
+      entry_type: "credit",
+      amount: advance,
+      narration: "Advance received",
+      reference_type: "sale_entry",
+      reference_id: se.id,
+      reference_number: se.entry_number,
+    });
+
+  await postLedger(supabase, companyId, userId, rows);
+}
+
 /** Removes all ledger lines tied to a reference (used on trash). */
 export async function deleteLedgerFor(
   supabase: SB,

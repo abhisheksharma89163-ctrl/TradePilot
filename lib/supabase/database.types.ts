@@ -366,6 +366,55 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["purchase_entries"]["Insert"]>;
         Relationships: [];
       };
+      sale_entries: {
+        Row: {
+          id: string;
+          company_id: string;
+          entry_number: string;
+          invoice_number: string | null;
+          entry_date: string;
+          customer_id: string | null;
+          vehicle_id: string | null;
+          weighment_slip_id: string | null;
+          product_id: string | null;
+          quantity_kg: number | null;
+          rate_per_kg: number | null;
+          freight: number;
+          advance_received: number;
+          total_amount: number;
+          balance_due: number | null;
+          payment_status: string;
+          due_date: string | null;
+          is_cancelled: boolean;
+          notes: string | null;
+          created_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          entry_number: string;
+          invoice_number?: string | null;
+          entry_date: string;
+          customer_id?: string | null;
+          vehicle_id?: string | null;
+          weighment_slip_id?: string | null;
+          product_id?: string | null;
+          quantity_kg?: number | null;
+          rate_per_kg?: number | null;
+          freight?: number;
+          advance_received?: number;
+          total_amount: number;
+          balance_due?: number | null;
+          payment_status?: string;
+          due_date?: string | null;
+          is_cancelled?: boolean;
+          notes?: string | null;
+          created_by?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["sale_entries"]["Insert"]>;
+        Relationships: [];
+      };
       ledger_entries: {
         Row: {
           id: string;
@@ -571,4 +620,5 @@ export type WeighmentSlip = Tables<"weighment_slips">;
 export type Payment = Tables<"payments">;
 export type DocumentRow = Tables<"documents">;
 export type PurchaseEntry = Tables<"purchase_entries">;
+export type SaleEntry = Tables<"sale_entries">;
 export type LedgerEntry = Tables<"ledger_entries">;

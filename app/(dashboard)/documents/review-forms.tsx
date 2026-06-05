@@ -98,6 +98,7 @@ export function WeighmentReviewForm({
   const [amount, setAmount] = useState(val(extraction, "amount"));
   const [freight, setFreight] = useState(val(extraction, "freight"));
   const [advance, setAdvance] = useState(val(extraction, "advance_paid"));
+  const [slipType, setSlipType] = useState<"purchase" | "sale">("purchase");
   const [dupes, setDupes] = useState<string[]>([]);
 
   const netNum =
@@ -156,7 +157,27 @@ export function WeighmentReviewForm({
   return (
     <form onSubmit={onSubmit} className="space-y-4">
       {documentId && <input type="hidden" name="document_id" value={documentId} />}
-      <input type="hidden" name="slip_type" value="purchase" />
+      <input type="hidden" name="slip_type" value={slipType} />
+
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">This is a:</span>
+        <Button
+          type="button"
+          size="sm"
+          variant={slipType === "purchase" ? "default" : "outline"}
+          onClick={() => setSlipType("purchase")}
+        >
+          Purchase (we buy)
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={slipType === "sale" ? "default" : "outline"}
+          onClick={() => setSlipType("sale")}
+        >
+          Sale (we sell)
+        </Button>
+      </div>
 
       <DuplicateBanner matches={dupes} />
 
@@ -272,7 +293,9 @@ export function WeighmentReviewForm({
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="advance_paid">− Advance already paid (₹)</Label>
+          <Label htmlFor="advance_paid">
+            {slipType === "sale" ? "− Advance received (₹)" : "− Advance already paid (₹)"}
+          </Label>
           <Input
             id="advance_paid"
             name="advance_paid"
@@ -301,7 +324,9 @@ export function WeighmentReviewForm({
 
       {balanceNum != null && (
         <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
-          <span className="text-sm font-medium">Balance to pay</span>
+          <span className="text-sm font-medium">
+            {slipType === "sale" ? "Balance to receive" : "Balance to pay"}
+          </span>
           <span className="text-lg font-bold">{formatINR(balanceNum)}</span>
         </div>
       )}

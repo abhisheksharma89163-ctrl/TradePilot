@@ -43,12 +43,18 @@ async function applyPayment(
     .single();
   if (!pay || !pay.party_id) return;
 
+  const isMade = pay.payment_type !== "received";
+  // Money made -> clear purchase balances; money received -> clear sale balances.
+  const table = isMade ? "purchase_entries" : "sale_entries";
+  const refType = isMade ? "purchase_entry" : "sale_entry";
+  const partyCol = isMade ? "supplier_id" : "customer_id";
+
   let remaining = Number(pay.amount);
   const { data: entries } = await supabase
-    .from("purchase_entries")
+    .from(table)
     .select("id, balance_due")
     .eq("company_id", companyId)
-    .eq("supplier_id", pay.party_id)
+    .eq(partyCol, pay.party_id)
     .eq("is_cancelled", false)
     .gt("balance_due", 0)
     .order("entry_date", { ascending: true });
@@ -59,13 +65,13 @@ async function applyPayment(
     const alloc = Math.min(remaining, bal);
     await supabase.from("payment_allocations").insert({
       payment_id: pay.id,
-      reference_type: "purchase_entry",
+      reference_type: refType,
       reference_id: e.id,
       allocated_amount: alloc,
     });
     const newBal = bal - alloc;
     await supabase
-      .from("purchase_entries")
+      .from(table)
       .update({
         balance_due: newBal,
         payment_status: newBal <= 0 ? "paid" : "partial",
@@ -74,7 +80,6 @@ async function applyPayment(
     remaining -= alloc;
   }
 
-  const isMade = pay.payment_type === "made";
   await postLedger(supabase, companyId, userId, [
     {
       date: pay.payment_date,
@@ -99,19 +104,20 @@ async function reversePayment(
 ) {
   const { data: allocs } = await supabase
     .from("payment_allocations")
-    .select("id, reference_id, allocated_amount")
+    .select("id, reference_type, reference_id, allocated_amount")
     .eq("payment_id", paymentId);
 
   for (const a of allocs ?? []) {
+    const table = a.reference_type === "sale_entry" ? "sale_entries" : "purchase_entries";
     const { data: pe } = await supabase
-      .from("purchase_entries")
+      .from(table)
       .select("balance_due, total_amount")
       .eq("id", a.reference_id)
       .single();
     if (pe) {
       const restored = Number(pe.balance_due) + Number(a.allocated_amount);
       await supabase
-        .from("purchase_entries")
+        .from(table)
         .update({
           balance_due: restored,
           payment_status:
@@ -165,6 +171,56 @@ export async function settlePayment(formData: FormData): Promise<ActionResult> {
 
     await applyPayment(supabase, companyId, userId, payment.id);
 
+    revalidatePath("/payments");
+    revalidatePath("/parties");
+    revalidatePath("/reports");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+// ============================================================
+// Receive: record money received from a customer; clears sale balances
+// ============================================================
+export async function settleReceipt(formData: FormData): Promise<ActionResult> {
+  try {
+    const { companyId, userId } = await requireActiveCompany();
+    const supabase = await createClient();
+
+    const partyId = str(formData.get("party_id"));
+    const amount = num(formData.get("amount"));
+    const date = str(formData.get("payment_date"));
+    if (!partyId) return { ok: false, error: "Party is required." };
+    if (amount == null || amount <= 0)
+      return { ok: false, error: "Enter a valid amount." };
+    if (!date) return { ok: false, error: "Date is required." };
+
+    const year = new Date(date).getFullYear();
+    const { data: payment, error } = await supabase
+      .from("payments")
+      .insert({
+        company_id: companyId,
+        payment_number: `RCP-${year}-${Date.now().toString().slice(-6)}`,
+        payment_date: date,
+        payment_type: "received",
+        party_id: partyId,
+        amount,
+        payment_mode: str(formData.get("payment_mode")),
+        bank_name: str(formData.get("bank_name")),
+        utr_number: str(formData.get("utr_number")),
+        cheque_number: str(formData.get("cheque_number")),
+        purpose: str(formData.get("purpose")) ?? "Receipt",
+        created_by: userId,
+      })
+      .select("id")
+      .single();
+
+    if (error || !payment) return { ok: false, error: error?.message ?? "Failed" };
+
+    await applyPayment(supabase, companyId, userId, payment.id);
+
+    revalidatePath("/sales");
     revalidatePath("/payments");
     revalidatePath("/parties");
     revalidatePath("/reports");
