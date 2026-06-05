@@ -38,6 +38,10 @@ export const WEIGHMENT_FIELDS = [
   "net_weight_kg",
   "bags_count",
   "rate",
+  "amount",
+  "freight",
+  "advance_paid",
+  "balance",
 ] as const;
 
 export const PAYMENT_FIELDS = [
@@ -48,6 +52,7 @@ export const PAYMENT_FIELDS = [
   "cheque_number",
   "utr_number",
   "ifsc_code",
+  "paid_to",
   "purpose",
 ] as const;
 

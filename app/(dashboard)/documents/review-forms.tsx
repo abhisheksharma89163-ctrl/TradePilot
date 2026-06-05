@@ -95,17 +95,29 @@ export function WeighmentReviewForm({
   const [gross, setGross] = useState(val(extraction, "gross_weight_kg"));
   const [tare, setTare] = useState(val(extraction, "tare_weight_kg"));
   const [rate, setRate] = useState(val(extraction, "rate"));
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState(val(extraction, "amount"));
+  const [freight, setFreight] = useState(val(extraction, "freight"));
+  const [advance, setAdvance] = useState(val(extraction, "advance_paid"));
   const [dupes, setDupes] = useState<string[]>([]);
 
   const netNum =
     gross !== "" && tare !== "" ? Number(gross) - Number(tare) : null;
   const net = netNum != null ? netNum.toLocaleString("en-IN") : "—";
 
-  // Auto-fill amount = net × rate whenever those change.
+  const amountNum = amount !== "" ? Number(amount) : null;
+  const balanceNum =
+    amountNum != null
+      ? amountNum - (Number(freight) || 0) - (Number(advance) || 0)
+      : null;
+
+  // Auto-fill amount = net × rate, but never overwrite a value the AI
+  // already extracted (e.g. the goods value in a settlement message).
+  const [amountTouched, setAmountTouched] = useState(
+    val(extraction, "amount") !== ""
+  );
   useEffect(() => {
     const r = Number(rate);
-    if (netNum != null && Number.isFinite(r) && r > 0) {
+    if (!amountTouched && netNum != null && Number.isFinite(r) && r > 0) {
       setAmount((netNum * r).toFixed(2));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -232,20 +244,53 @@ export function WeighmentReviewForm({
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="amount">Amount (₹) — auto = net × rate</Label>
+          <Label htmlFor="amount">Goods value (₹) — net × rate</Label>
           <Input
             id="amount"
             name="amount"
             inputMode="decimal"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => {
+              setAmountTouched(true);
+              setAmount(e.target.value);
+            }}
           />
-          {amount && (
-            <p className="text-xs text-muted-foreground">
-              {formatINR(Number(amount))}
-            </p>
-          )}
         </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="freight">− Freight (₹)</Label>
+          <Input
+            id="freight"
+            name="freight"
+            inputMode="decimal"
+            placeholder="0"
+            value={freight}
+            onChange={(e) => setFreight(e.target.value)}
+            className={cn(
+              flagged(extraction, "freight") &&
+                "border-yellow-500 bg-yellow-50 dark:bg-yellow-950/30"
+            )}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="advance_paid">− Advance already paid (₹)</Label>
+          <Input
+            id="advance_paid"
+            name="advance_paid"
+            inputMode="decimal"
+            placeholder="0"
+            value={advance}
+            onChange={(e) => setAdvance(e.target.value)}
+            className={cn(
+              flagged(extraction, "advance_paid") &&
+                "border-yellow-500 bg-yellow-50 dark:bg-yellow-950/30"
+            )}
+          />
+        </div>
+        <ReviewField
+          label="Due date (pay by)"
+          name="due_date"
+          type="date"
+        />
         <ReviewField
           label="Bags / Packets"
           name="bags_count"
@@ -253,6 +298,13 @@ export function WeighmentReviewForm({
           isFlagged={flagged(extraction, "bags_count")}
         />
       </div>
+
+      {balanceNum != null && (
+        <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+          <span className="text-sm font-medium">Balance to pay</span>
+          <span className="text-lg font-bold">{formatINR(balanceNum)}</span>
+        </div>
+      )}
 
       <div className="space-y-1.5">
         <Label htmlFor="remarks">Remarks (rate codes, times, notes)</Label>
@@ -338,10 +390,18 @@ export function PaymentReviewForm({
           isFlagged={flagged(extraction, "amount")}
         />
         <ReviewField
-          label="Party / Payee"
+          label="Paid to (receiver) *"
           name="party_name"
           defaultValue={val(extraction, "party_name")}
           isFlagged={flagged(extraction, "party_name")}
+        />
+        <ReviewField
+          label="Cheque pay-to line"
+          name="paid_to"
+          defaultValue={
+            val(extraction, "paid_to") || val(extraction, "purpose")
+          }
+          isFlagged={flagged(extraction, "paid_to")}
         />
         <ReviewField
           label="Mode (cash/cheque/neft…)"

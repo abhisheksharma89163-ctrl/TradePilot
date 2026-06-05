@@ -424,7 +424,12 @@ export async function saveWeighmentSlip(
     const gross = num(formData.get("gross_weight_kg"));
     const tare = num(formData.get("tare_weight_kg"));
     const net = gross != null && tare != null ? gross - tare : null;
-    const amount = num(formData.get("amount"));
+    const amount = num(formData.get("amount")); // goods value (net × rate)
+    const freight = num(formData.get("freight")) ?? 0;
+    const advance = num(formData.get("advance_paid")) ?? 0;
+    const dueDate = str(formData.get("due_date"));
+    const balanceDue =
+      amount != null ? amount - freight - advance : null;
 
     const { data: slip, error } = await supabase
       .from("weighment_slips")
@@ -445,6 +450,9 @@ export async function saveWeighmentSlip(
           rate: rate ?? undefined,
           bags_count: bags ?? undefined,
           amount: amount ?? undefined,
+          freight: freight || undefined,
+          advance_paid: advance || undefined,
+          balance_due: balanceDue ?? undefined,
           party_name: partyNameRaw ?? undefined,
           product_name: productName ?? undefined,
         },
@@ -455,13 +463,20 @@ export async function saveWeighmentSlip(
 
     if (error) return { ok: false, error: error.message };
 
-    // If an amount is present, create a purchase entry + ledger postings.
+    // If a goods value is present, create a purchase entry + ledger postings.
     if (slip && amount != null && amount > 0 && party.id) {
       const { data: entryNumber } = await supabase.rpc("next_entry_number", {
         p_company: companyId,
         p_prefix: "PUR",
         p_table: "purchase_entries",
       });
+
+      const status =
+        balanceDue != null && balanceDue <= 0
+          ? "paid"
+          : advance > 0 || freight > 0
+            ? "partial"
+            : "pending";
 
       const { data: purchase } = await supabase
         .from("purchase_entries")
@@ -475,40 +490,60 @@ export async function saveWeighmentSlip(
           product_id: productId,
           quantity_kg: net,
           rate_per_kg: rate,
+          freight,
+          advance_paid: advance,
           total_amount: amount,
-          balance_due: amount,
-          payment_status: "pending",
+          balance_due: balanceDue ?? amount,
+          payment_status: status,
+          due_date: dueDate,
           created_by: userId,
         })
         .select("id, entry_number")
         .single();
 
-      // Double entry: supplier credited (we owe them), purchases debited.
-      await postLedger(supabase, companyId, userId, [
+      // Party ledger: credit goods value (we owe), debit freight + advance
+      // (those reduce what's still owed). Net = balance to pay.
+      const rows = [
         {
           date: slipDate,
           account_type: "party",
           account_id: party.id,
           account_name: party.name,
-          entry_type: "credit",
+          entry_type: "credit" as const,
           amount,
           narration: `Purchase ${productName ?? ""} ${net ?? ""}kg`.trim(),
           reference_type: "purchase_entry",
           reference_id: purchase?.id,
           reference_number: purchase?.entry_number,
         },
-        {
+      ];
+      if (freight > 0)
+        rows.push({
           date: slipDate,
-          account_type: "purchase",
-          account_id: productId ?? companyId,
-          account_name: productName ?? "Purchases",
-          entry_type: "debit",
-          amount,
+          account_type: "party",
+          account_id: party.id,
+          account_name: party.name,
+          entry_type: "debit" as const,
+          amount: freight,
+          narration: "Freight deducted",
           reference_type: "purchase_entry",
           reference_id: purchase?.id,
           reference_number: purchase?.entry_number,
-        },
-      ]);
+        });
+      if (advance > 0)
+        rows.push({
+          date: slipDate,
+          account_type: "party",
+          account_id: party.id,
+          account_name: party.name,
+          entry_type: "debit" as const,
+          amount: advance,
+          narration: "Advance already paid",
+          reference_type: "purchase_entry",
+          reference_id: purchase?.id,
+          reference_number: purchase?.entry_number,
+        });
+      await postLedger(supabase, companyId, userId, rows);
     }
 
     if (documentId && slip) {
@@ -565,6 +600,7 @@ export async function savePayment(formData: FormData): Promise<SaveResult> {
         utr_number: str(formData.get("utr_number")),
         bank_name: str(formData.get("bank_name")),
         purpose: str(formData.get("purpose")),
+        paid_to: str(formData.get("paid_to")),
         notes: str(formData.get("remarks")),
         document_id: documentId,
         created_by: userId,

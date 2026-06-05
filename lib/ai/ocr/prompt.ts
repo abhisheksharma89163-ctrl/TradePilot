@@ -41,7 +41,10 @@ Return ONLY valid JSON in exactly this shape (no markdown, no backticks):
   "raw_text": "all text you can read, verbatim"
 }
 
-For "payment" documents use these field keys instead: party_name, amount, payment_mode (cash|cheque|neft|rtgs|upi|imps), bank_name, cheque_number, utr_number, ifsc_code, purpose.
+For "payment" documents use these field keys instead: party_name, amount, payment_mode (cash|cheque|neft|rtgs|upi|imps), bank_name, cheque_number, utr_number, ifsc_code, paid_to, purpose.
+- party_name = the ACTUAL beneficiary/person who receives the money (e.g. on a cheque that says "PAY yourself for NEFT Jagannath Adwar", party_name is "Jagannath Adwar").
+- paid_to = the FULL pay-to line exactly as written (e.g. "Self for NEFT — Jagannath Adwar"). Always capture this for cheques.
+- For a weighment_slip, if the slip mentions freight and any advance already paid, also include: freight {value, confidence}, advance_paid {value, confidence}.
 
 Respond with JSON only.`;
 
@@ -69,6 +72,18 @@ Return ONLY a JSON ARRAY (even for a single entry), where each element has the S
   }
 ]
 
-For payment entries use keys: party_name, amount, payment_mode, bank_name, cheque_number, utr_number, purpose.
+For payment entries use keys: party_name, amount, payment_mode, bank_name, cheque_number, utr_number, paid_to, purpose.
+
+SETTLEMENT MESSAGES: the text may be a payment settlement like:
+"1) Gadi 9.59*3790=35483-13920(mishraji freight)-20500(satishji idbi)=1063 bal to pay"
+This means: goods value 35483, minus freight 13920 (paid to "mishraji"), minus advance 20500 (already paid via "satishji idbi"), leaving balance 1063 to pay. For EACH such vehicle line, return a "weighment_slip" entry with fields:
+  party_name (the supplier this balance is owed to, often named at the end like "satishji"),
+  rate, net_weight_kg (the quantity, e.g. 3790),
+  amount {value: the goods value e.g. 35483},
+  freight {value: 13920},
+  advance_paid {value: 20500},
+  balance {value: 1063}
+and put the freight payee + advance mode (e.g. "Mishraji freight; Satishji IDBI") into remarks.
+If a payment date is implied (e.g. "kal" = tomorrow), set document_date to tomorrow's date.
 
 Respond with a JSON array only.`;

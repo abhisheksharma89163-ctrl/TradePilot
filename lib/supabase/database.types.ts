@@ -239,6 +239,7 @@ export interface Database {
           remarks: string | null;
           document_id: string | null;
           custom_fields: Json;
+          is_cancelled: boolean;
           created_by: string | null;
           created_at: string;
           updated_at: string;
@@ -260,6 +261,7 @@ export interface Database {
           remarks?: string | null;
           document_id?: string | null;
           custom_fields?: Json;
+          is_cancelled?: boolean;
           created_by?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["weighment_slips"]["Insert"]>;
@@ -282,9 +284,11 @@ export interface Database {
           bank_name: string | null;
           reference_number: string | null;
           purpose: string | null;
+          paid_to: string | null;
           notes: string | null;
           document_id: string | null;
           is_reconciled: boolean;
+          is_cancelled: boolean;
           created_by: string | null;
           created_at: string;
           updated_at: string;
@@ -305,9 +309,11 @@ export interface Database {
           bank_name?: string | null;
           reference_number?: string | null;
           purpose?: string | null;
+          paid_to?: string | null;
           notes?: string | null;
           document_id?: string | null;
           is_reconciled?: boolean;
+          is_cancelled?: boolean;
           created_by?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["payments"]["Insert"]>;
@@ -325,9 +331,13 @@ export interface Database {
           product_id: string | null;
           quantity_kg: number | null;
           rate_per_kg: number | null;
+          freight: number;
+          advance_paid: number;
           total_amount: number;
           balance_due: number | null;
           payment_status: string;
+          due_date: string | null;
+          is_cancelled: boolean;
           notes: string | null;
           created_by: string | null;
           created_at: string;
@@ -343,9 +353,13 @@ export interface Database {
           product_id?: string | null;
           quantity_kg?: number | null;
           rate_per_kg?: number | null;
+          freight?: number;
+          advance_paid?: number;
           total_amount: number;
           balance_due?: number | null;
           payment_status?: string;
+          due_date?: string | null;
+          is_cancelled?: boolean;
           notes?: string | null;
           created_by?: string | null;
         };
@@ -387,6 +401,25 @@ export interface Database {
           created_by?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["ledger_entries"]["Insert"]>;
+        Relationships: [];
+      };
+      payment_allocations: {
+        Row: {
+          id: string;
+          payment_id: string;
+          reference_type: string;
+          reference_id: string;
+          allocated_amount: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          payment_id: string;
+          reference_type: string;
+          reference_id: string;
+          allocated_amount: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["payment_allocations"]["Insert"]>;
         Relationships: [];
       };
       documents: {

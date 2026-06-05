@@ -27,6 +27,8 @@ export interface PaymentRow {
   payment_mode: string | null;
   bank_name: string | null;
   purpose: string | null;
+  payee: string | null;
+  paid_to: string | null;
 }
 
 export function ReportView({
@@ -159,17 +161,16 @@ export function ReportView({
               <thead>
                 <tr className="border-b text-left">
                   <th className="p-2">Date</th>
-                  <th className="p-2">Payment #</th>
+                  <th className="p-2">Paid to</th>
                   <th className="p-2">Mode</th>
                   <th className="p-2">Bank</th>
-                  <th className="p-2">Purpose</th>
                   <th className="p-2 text-right">Amount</th>
                 </tr>
               </thead>
               <tbody>
                 {payments.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="p-4 text-center text-muted-foreground">
+                    <td colSpan={5} className="p-4 text-center text-muted-foreground">
                       No payments in this period.
                     </td>
                   </tr>
@@ -177,10 +178,16 @@ export function ReportView({
                   payments.map((r, i) => (
                     <tr key={i} className="border-b">
                       <td className="p-2">{format(new Date(r.payment_date), "dd-MM-yy")}</td>
-                      <td className="p-2">{r.payment_number}</td>
+                      <td className="p-2">
+                        <div className="font-medium">{r.payee ?? "—"}</div>
+                        {r.paid_to && (
+                          <div className="text-xs text-muted-foreground">
+                            {r.paid_to}
+                          </div>
+                        )}
+                      </td>
                       <td className="p-2">{r.payment_mode ?? "—"}</td>
                       <td className="p-2">{r.bank_name ?? "—"}</td>
-                      <td className="p-2">{r.purpose ?? "—"}</td>
                       <td className="p-2 text-right font-medium">{formatINR(r.amount)}</td>
                     </tr>
                   ))
@@ -189,7 +196,7 @@ export function ReportView({
               {payments.length > 0 && (
                 <tfoot>
                   <tr className="border-t-2 font-semibold">
-                    <td className="p-2" colSpan={5}>
+                    <td className="p-2" colSpan={4}>
                       Total Payments
                     </td>
                     <td className="p-2 text-right">{formatINR(totalPay)}</td>

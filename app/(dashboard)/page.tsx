@@ -1,12 +1,21 @@
 import Link from "next/link";
-import { Users, Boxes, ShoppingCart, TrendingUp } from "lucide-react";
+import { format } from "date-fns";
+import {
+  Users,
+  Boxes,
+  ShoppingCart,
+  Wallet,
+  AlertTriangle,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireActiveCompany } from "@/lib/auth/company";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { formatINR } from "@/lib/utils";
 
 async function count(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  table: "parties" | "products" | "purchase_entries" | "sale_entries",
+  table: "parties" | "products" | "weighment_slips",
   companyId: string
 ) {
   const { count } = await supabase
@@ -20,23 +29,48 @@ export default async function DashboardPage() {
   const { companyId } = await requireActiveCompany();
   const supabase = await createClient();
 
-  const [parties, products, purchases, sales] = await Promise.all([
-    count(supabase, "parties", companyId),
-    count(supabase, "products", companyId),
-    count(supabase, "purchase_entries", companyId),
-    count(supabase, "sale_entries", companyId),
-  ]);
+  const today = new Date().toISOString().slice(0, 10);
+
+  const [parties, products, slips, { data: outstanding }, { data: parties2 }] =
+    await Promise.all([
+      count(supabase, "parties", companyId),
+      count(supabase, "products", companyId),
+      count(supabase, "weighment_slips", companyId),
+      supabase
+        .from("purchase_entries")
+        .select("supplier_id, balance_due, due_date")
+        .eq("company_id", companyId)
+        .eq("is_cancelled", false)
+        .gt("balance_due", 0),
+      supabase.from("parties").select("id, name").eq("company_id", companyId),
+    ]);
+
+  const nameById = new Map((parties2 ?? []).map((p) => [p.id, p.name]));
+  const totalToPay = (outstanding ?? []).reduce(
+    (s, e) => s + Number(e.balance_due),
+    0
+  );
+  const overdue = (outstanding ?? []).filter(
+    (e) => e.due_date && e.due_date < today
+  );
+  const overdueTotal = overdue.reduce((s, e) => s + Number(e.balance_due), 0);
 
   const cards = [
-    { label: "Parties", value: parties, href: "/parties", icon: Users },
-    { label: "Products", value: products, href: "/products", icon: Boxes },
+    { label: "Parties", value: String(parties), href: "/parties", icon: Users },
+    { label: "Products", value: String(products), href: "/products", icon: Boxes },
     {
-      label: "Purchases",
-      value: purchases,
+      label: "Slips",
+      value: String(slips),
       href: "/purchases",
       icon: ShoppingCart,
     },
-    { label: "Sales", value: sales, href: "/sales", icon: TrendingUp },
+    {
+      label: "To Pay",
+      value: formatINR(totalToPay),
+      href: "/payments",
+      icon: Wallet,
+      accent: true,
+    },
   ];
 
   return (
@@ -49,7 +83,7 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {cards.map(({ label, value, href, icon: Icon }) => (
+        {cards.map(({ label, value, href, icon: Icon, accent }) => (
           <Link key={label} href={href}>
             <Card className="transition-colors hover:bg-accent/40">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -59,34 +93,67 @@ export default async function DashboardPage() {
                 <Icon className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">{value}</div>
+                <div
+                  className={
+                    accent
+                      ? "text-2xl font-bold text-destructive"
+                      : "text-3xl font-bold"
+                  }
+                >
+                  {value}
+                </div>
               </CardContent>
             </Card>
           </Link>
         ))}
       </div>
 
+      {overdue.length > 0 && (
+        <Card className="border-destructive/50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base text-destructive">
+              <AlertTriangle className="h-4 w-4" />
+              Overdue payments — {formatINR(overdueTotal)}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {overdue.slice(0, 6).map((e, i) => (
+              <div key={i} className="flex justify-between text-sm">
+                <span>
+                  {e.supplier_id ? nameById.get(e.supplier_id) ?? "—" : "—"}
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    due {e.due_date ? format(new Date(e.due_date), "dd MMM") : ""}
+                  </span>
+                </span>
+                <span className="font-medium">{formatINR(e.balance_due)}</span>
+              </div>
+            ))}
+            <Link
+              href="/payments"
+              className="inline-block pt-1 text-sm text-primary hover:underline"
+            >
+              Go to Payments →
+            </Link>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
-          <CardTitle>Getting started</CardTitle>
+          <CardTitle className="text-base">Quick actions</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm text-muted-foreground">
-          <p>
-            This is the MVP foundation. The{" "}
-            <Link href="/parties" className="text-primary hover:underline">
-              Parties
-            </Link>{" "}
-            and{" "}
-            <Link href="/products" className="text-primary hover:underline">
-              Products
-            </Link>{" "}
-            modules are fully built as reference implementations — full CRUD,
-            server-side validation, and audit logging.
-          </p>
-          <p>
-            Remaining modules (purchases, sales, payments, OCR, GST, reports)
-            follow the same pattern against the schema already migrated.
-          </p>
+        <CardContent className="flex flex-wrap gap-2 text-sm">
+          <Link href="/documents" className="text-primary hover:underline">
+            Upload / paste slips
+          </Link>
+          <span className="text-muted-foreground">·</span>
+          <Link href="/payments" className="text-primary hover:underline">
+            See what you owe
+          </Link>
+          <span className="text-muted-foreground">·</span>
+          <Link href="/reports" className="text-primary hover:underline">
+            Download report
+          </Link>
         </CardContent>
       </Card>
     </div>
