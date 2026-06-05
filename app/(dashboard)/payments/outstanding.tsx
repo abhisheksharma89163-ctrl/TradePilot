@@ -186,6 +186,10 @@ export function OutstandingView({
                   {p.entries.map((e) => {
                     const overdue =
                       e.due_date && new Date(e.due_date) < new Date();
+                    const ageDays = Math.floor(
+                      (Date.now() - new Date(e.entry_date).getTime()) /
+                        86400000
+                    );
                     return (
                       <div
                         key={e.id}
@@ -194,6 +198,18 @@ export function OutstandingView({
                         <span className="text-muted-foreground">
                           {format(new Date(e.entry_date), "dd-MM-yy")} ·{" "}
                           {e.entry_number}
+                          <span
+                            className={
+                              "ml-1 " +
+                              (ageDays > 60
+                                ? "text-destructive"
+                                : ageDays > 30
+                                  ? "text-amber-600"
+                                  : "")
+                            }
+                          >
+                            ({ageDays}d old)
+                          </span>
                           {e.due_date && (
                             <span
                               className={

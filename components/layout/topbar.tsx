@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Menu, Moon, Sun, LogOut, Search } from "lucide-react";
+import { Menu, Moon, Sun, LogOut } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Sidebar } from "./sidebar";
+import { SearchCommand } from "./search-command";
 import { createClient } from "@/lib/supabase/client";
 import { initials } from "@/lib/utils";
 
@@ -46,13 +47,7 @@ export function Topbar({
         </DialogContent>
       </Dialog>
 
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Search className="h-4 w-4" />
-        <span className="hidden sm:inline">Press</span>
-        <kbd className="hidden rounded border px-1.5 py-0.5 text-xs sm:inline">
-          ⌘K
-        </kbd>
-      </div>
+      <SearchCommand />
 
       <div className="ml-auto flex items-center gap-3">
         <span className="hidden text-sm font-medium sm:inline">

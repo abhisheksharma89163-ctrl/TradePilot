@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireActiveCompany } from "@/lib/auth/company";
 import { partySchema } from "@/lib/validations/party";
+import { postLedger } from "@/lib/ledger";
 
 export interface ActionResult {
   ok: boolean;
@@ -47,13 +48,36 @@ export async function createParty(formData: FormData): Promise<ActionResult> {
   }
 
   try {
-    const { companyId } = await requireActiveCompany();
+    const { companyId, userId } = await requireActiveCompany();
     const supabase = await createClient();
-    const { error } = await supabase
+    const { data: created, error } = await supabase
       .from("parties")
-      .insert({ ...parsed.data, company_id: companyId });
+      .insert({ ...parsed.data, company_id: companyId })
+      .select("id, name, opening_balance, opening_balance_type")
+      .single();
 
     if (error) return { ok: false, error: error.message };
+
+    // Post the opening balance into the ledger so the party's running
+    // balance is correct from day one.
+    const ob = Number(created?.opening_balance ?? 0);
+    if (created && ob !== 0) {
+      await postLedger(supabase, companyId, userId, [
+        {
+          date: new Date().toISOString().slice(0, 10),
+          account_type: "party",
+          account_id: created.id,
+          account_name: created.name,
+          entry_type:
+            created.opening_balance_type === "credit" ? "credit" : "debit",
+          amount: ob,
+          narration: "Opening balance",
+          reference_type: "opening",
+          reference_id: created.id,
+        },
+      ]);
+    }
+
     revalidatePath("/parties");
     return { ok: true };
   } catch (e) {

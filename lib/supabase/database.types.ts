@@ -403,6 +403,55 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["ledger_entries"]["Insert"]>;
         Relationships: [];
       };
+      expense_categories: {
+        Row: {
+          id: string;
+          company_id: string;
+          name: string;
+          parent_id: string | null;
+          is_active: boolean;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          name: string;
+          parent_id?: string | null;
+          is_active?: boolean;
+        };
+        Update: Partial<Database["public"]["Tables"]["expense_categories"]["Insert"]>;
+        Relationships: [];
+      };
+      expenses: {
+        Row: {
+          id: string;
+          company_id: string;
+          expense_date: string;
+          category_id: string | null;
+          amount: number;
+          paid_from: string | null;
+          paid_to: string | null;
+          description: string | null;
+          gst_amount: number;
+          document_id: string | null;
+          created_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          expense_date: string;
+          category_id?: string | null;
+          amount: number;
+          paid_from?: string | null;
+          paid_to?: string | null;
+          description?: string | null;
+          gst_amount?: number;
+          document_id?: string | null;
+          created_by?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["expenses"]["Insert"]>;
+        Relationships: [];
+      };
       payment_allocations: {
         Row: {
           id: string;
