@@ -3,9 +3,9 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { Trash2, RotateCcw, Search } from "lucide-react";
+import { Trash2, RotateCcw, Search, XCircle } from "lucide-react";
 import { toast } from "sonner";
-import { cancelSlip, restoreSlip } from "./actions";
+import { cancelSlip, restoreSlip, deleteSlipPermanent } from "./actions";
 import { SlipEditForm, type SlipRow } from "./slip-edit-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,11 +20,32 @@ import {
 } from "@/components/ui/table";
 import { formatINR } from "@/lib/utils";
 
-export function SlipsList({ slips }: { slips: SlipRow[] }) {
+export function SlipsList({
+  slips,
+  isOwner,
+}: {
+  slips: SlipRow[];
+  isOwner: boolean;
+}) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [showTrash, setShowTrash] = useState(false);
   const [pending, startTransition] = useTransition();
+
+  function deleteForever(s: SlipRow) {
+    if (
+      !confirm(
+        "Permanently delete this slip? This CANNOT be undone and removes it from all reports and balances."
+      )
+    )
+      return;
+    startTransition(async () => {
+      const res = await deleteSlipPermanent(s.id);
+      if (!res.ok) return toast.error(res.error ?? "Failed");
+      toast.success("Permanently deleted");
+      router.refresh();
+    });
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -130,15 +151,28 @@ export function SlipsList({ slips }: { slips: SlipRow[] }) {
                     <TableCell>
                       <div className="flex justify-end gap-1">
                         {showTrash ? (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            disabled={pending}
-                            onClick={() => restore(s)}
-                            title="Restore"
-                          >
-                            <RotateCcw className="h-4 w-4" />
-                          </Button>
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              disabled={pending}
+                              onClick={() => restore(s)}
+                              title="Restore"
+                            >
+                              <RotateCcw className="h-4 w-4" />
+                            </Button>
+                            {isOwner && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                disabled={pending}
+                                onClick={() => deleteForever(s)}
+                                title="Delete permanently (owner)"
+                              >
+                                <XCircle className="h-4 w-4 text-destructive" />
+                              </Button>
+                            )}
+                          </>
                         ) : (
                           <>
                             <SlipEditForm slip={s} />

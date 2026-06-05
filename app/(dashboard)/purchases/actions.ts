@@ -172,3 +172,45 @@ export async function restoreSlip(id: string): Promise<ActionResult> {
     return { ok: false, error: (e as Error).message };
   }
 }
+
+// Owner-only: permanently remove a slip and everything derived from it.
+export async function deleteSlipPermanent(id: string): Promise<ActionResult> {
+  try {
+    const { companyId, role } = await requireActiveCompany();
+    if (role !== "owner")
+      return { ok: false, error: "Only the company owner can permanently delete." };
+    const supabase = await createClient();
+
+    const { data: pe } = await supabase
+      .from("purchase_entries")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("weighment_slip_id", id)
+      .maybeSingle();
+
+    if (pe) {
+      await supabase.from("payment_allocations").delete().eq("reference_id", pe.id);
+      await supabase
+        .from("ledger_entries")
+        .delete()
+        .eq("company_id", companyId)
+        .eq("reference_type", "purchase_entry")
+        .eq("reference_id", pe.id);
+      await supabase.from("purchase_entries").delete().eq("id", pe.id).eq("company_id", companyId);
+    }
+
+    const { error } = await supabase
+      .from("weighment_slips")
+      .delete()
+      .eq("id", id)
+      .eq("company_id", companyId);
+    if (error) return { ok: false, error: error.message };
+
+    revalidatePath("/purchases");
+    revalidatePath("/reports");
+    revalidatePath("/parties");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}

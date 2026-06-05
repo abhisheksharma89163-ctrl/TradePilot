@@ -12,12 +12,29 @@ import { formatINR } from "@/lib/utils";
 export interface SlipRow {
   slip_date: string;
   slip_number: string | null;
+  slip_type: string | null;
   vehicle_number: string | null;
   gross_weight_kg: number | null;
   tare_weight_kg: number | null;
   net_weight_kg: number | null;
   remarks: string | null;
-  custom_fields: { party_name?: string; product_name?: string; rate?: string } | null;
+  custom_fields: {
+    party_name?: string;
+    product_name?: string;
+    rate?: string;
+    balance_due?: number;
+  } | null;
+}
+
+/** Human label for a slip's payment status, shown in the PDF. */
+function paymentStatusLabel(s: SlipRow): { text: string; tone: "paid" | "pay" | "receive" | "none" } {
+  const bal = s.custom_fields?.balance_due;
+  if (bal == null) return { text: "—", tone: "none" };
+  if (bal <= 0) return { text: "Paid", tone: "paid" };
+  const isSale = s.slip_type === "sale";
+  return isSale
+    ? { text: `To receive ${formatINR(bal)}`, tone: "receive" }
+    : { text: `To pay ${formatINR(bal)}`, tone: "pay" };
 }
 
 export interface PaymentRow {
@@ -109,31 +126,49 @@ export function ReportView({
                   <th className="p-2 text-right">Tare</th>
                   <th className="p-2 text-right">Net (kg)</th>
                   <th className="p-2 text-right">Rate</th>
+                  <th className="p-2">Payment</th>
                 </tr>
               </thead>
               <tbody>
                 {slips.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="p-4 text-center text-muted-foreground">
+                    <td colSpan={10} className="p-4 text-center text-muted-foreground">
                       No weighment slips in this period.
                     </td>
                   </tr>
                 ) : (
-                  slips.map((r, i) => (
-                    <tr key={i} className="border-b">
-                      <td className="p-2">{format(new Date(r.slip_date), "dd-MM-yy")}</td>
-                      <td className="p-2">{r.slip_number ?? "—"}</td>
-                      <td className="p-2">{r.custom_fields?.party_name ?? "—"}</td>
-                      <td className="p-2">{r.vehicle_number ?? "—"}</td>
-                      <td className="p-2">{r.custom_fields?.product_name ?? "—"}</td>
-                      <td className="p-2 text-right">{r.gross_weight_kg ?? "—"}</td>
-                      <td className="p-2 text-right">{r.tare_weight_kg ?? "—"}</td>
-                      <td className="p-2 text-right font-medium">
-                        {r.net_weight_kg?.toLocaleString("en-IN") ?? "—"}
-                      </td>
-                      <td className="p-2 text-right">{r.custom_fields?.rate ?? "—"}</td>
-                    </tr>
-                  ))
+                  slips.map((r, i) => {
+                    const ps = paymentStatusLabel(r);
+                    return (
+                      <tr key={i} className="border-b">
+                        <td className="p-2">{format(new Date(r.slip_date), "dd-MM-yy")}</td>
+                        <td className="p-2">{r.slip_number ?? "—"}</td>
+                        <td className="p-2">{r.custom_fields?.party_name ?? "—"}</td>
+                        <td className="p-2">{r.vehicle_number ?? "—"}</td>
+                        <td className="p-2">{r.custom_fields?.product_name ?? "—"}</td>
+                        <td className="p-2 text-right">{r.gross_weight_kg ?? "—"}</td>
+                        <td className="p-2 text-right">{r.tare_weight_kg ?? "—"}</td>
+                        <td className="p-2 text-right font-medium">
+                          {r.net_weight_kg?.toLocaleString("en-IN") ?? "—"}
+                        </td>
+                        <td className="p-2 text-right">{r.custom_fields?.rate ?? "—"}</td>
+                        <td
+                          className={
+                            "p-2 whitespace-nowrap " +
+                            (ps.tone === "pay"
+                              ? "text-red-600"
+                              : ps.tone === "receive"
+                                ? "text-amber-600"
+                                : ps.tone === "paid"
+                                  ? "text-emerald-600"
+                                  : "text-muted-foreground")
+                          }
+                        >
+                          {ps.text}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
               {slips.length > 0 && (
@@ -145,7 +180,7 @@ export function ReportView({
                     <td className="p-2 text-right">
                       {totalNet.toLocaleString("en-IN")} kg
                     </td>
-                    <td />
+                    <td colSpan={2} />
                   </tr>
                 </tfoot>
               )}
@@ -206,6 +241,14 @@ export function ReportView({
             </table>
           </div>
         </section>
+
+        <div className="flex justify-end pt-12">
+          <div className="text-center">
+            <div className="mb-1 border-t border-foreground px-8 pt-1" />
+            <p className="text-sm font-medium">For {companyName}</p>
+            <p className="text-xs text-muted-foreground">Authorised Signatory</p>
+          </div>
+        </div>
 
         <p className="pt-4 text-xs text-muted-foreground">
           Generated by BOS on {format(new Date(), "dd MMM yyyy, HH:mm")}

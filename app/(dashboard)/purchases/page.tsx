@@ -6,7 +6,7 @@ import type { SlipRow } from "./slip-edit-form";
 export const dynamic = "force-dynamic";
 
 export default async function PurchasesPage() {
-  const { companyId } = await requireActiveCompany();
+  const { companyId, role } = await requireActiveCompany();
   const supabase = await createClient();
 
   const { data: slips } = await supabase
@@ -27,7 +27,10 @@ export default async function PurchasesPage() {
         </p>
       </div>
 
-      <SlipsList slips={(slips ?? []) as unknown as SlipRow[]} />
+      <SlipsList
+        slips={(slips ?? []) as unknown as SlipRow[]}
+        isOwner={role === "owner"}
+      />
     </div>
   );
 }

@@ -6,7 +6,7 @@ import { PaymentsList, type PaymentRow } from "./payments-list";
 export const dynamic = "force-dynamic";
 
 export default async function PaymentsPage() {
-  const { companyId } = await requireActiveCompany();
+  const { companyId, role } = await requireActiveCompany();
   const supabase = await createClient();
 
   const [{ data: entries }, { data: parties }, { data: payments }] =
@@ -80,7 +80,11 @@ export default async function PaymentsPage() {
       </div>
 
       <OutstandingView outstanding={outstanding} partyOptions={partyOptions} />
-      <PaymentsList payments={paymentRows} partyOptions={partyOptions} />
+      <PaymentsList
+        payments={paymentRows}
+        partyOptions={partyOptions}
+        isOwner={role === "owner"}
+      />
     </div>
   );
 }

@@ -12,6 +12,7 @@ import { requireActiveCompany } from "@/lib/auth/company";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatINR } from "@/lib/utils";
+import { ExportAllButton } from "./export-all-button";
 
 async function count(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -139,10 +140,11 @@ export default async function DashboardPage() {
       )}
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base">Quick actions</CardTitle>
+          <ExportAllButton />
         </CardHeader>
-        <CardContent className="flex flex-wrap gap-2 text-sm">
+        <CardContent className="flex flex-wrap items-center gap-2 text-sm">
           <Link href="/documents" className="text-primary hover:underline">
             Upload / paste slips
           </Link>

@@ -30,7 +30,7 @@ export default async function ReportsPage({
       supabase
         .from("weighment_slips")
         .select(
-          "slip_date, slip_number, vehicle_number, gross_weight_kg, tare_weight_kg, net_weight_kg, remarks, custom_fields"
+          "slip_date, slip_number, slip_type, vehicle_number, gross_weight_kg, tare_weight_kg, net_weight_kg, remarks, custom_fields"
         )
         .eq("company_id", companyId)
         .eq("is_cancelled", false)

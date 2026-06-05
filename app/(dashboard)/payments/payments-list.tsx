@@ -3,9 +3,14 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { Pencil, Trash2, RotateCcw, Receipt } from "lucide-react";
+import { Pencil, Trash2, RotateCcw, Receipt, XCircle } from "lucide-react";
 import { toast } from "sonner";
-import { updatePayment, cancelPayment, restorePayment } from "./actions";
+import {
+  updatePayment,
+  cancelPayment,
+  restorePayment,
+  deletePaymentPermanent,
+} from "./actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -157,12 +162,29 @@ function EditDialog({ p }: { p: PaymentRow }) {
 
 export function PaymentsList({
   payments,
+  isOwner,
 }: {
   payments: PaymentRow[];
   partyOptions: { id: string; name: string }[];
+  isOwner: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+
+  function deleteForever(p: PaymentRow) {
+    if (
+      !confirm(
+        "Permanently delete this payment? This CANNOT be undone. Any cleared balances will be restored."
+      )
+    )
+      return;
+    startTransition(async () => {
+      const res = await deletePaymentPermanent(p.id);
+      if (!res.ok) return toast.error(res.error ?? "Failed");
+      toast.success("Permanently deleted");
+      router.refresh();
+    });
+  }
 
   function trash(p: PaymentRow) {
     if (!confirm(`Move payment ${p.payment_number} to trash?`)) return;
@@ -246,15 +268,28 @@ export function PaymentsList({
                       <TableCell>
                         <div className="flex justify-end gap-1">
                           {p.is_cancelled ? (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              disabled={pending}
-                              onClick={() => restore(p)}
-                              title="Restore"
-                            >
-                              <RotateCcw className="h-4 w-4" />
-                            </Button>
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                disabled={pending}
+                                onClick={() => restore(p)}
+                                title="Restore"
+                              >
+                                <RotateCcw className="h-4 w-4" />
+                              </Button>
+                              {isOwner && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  disabled={pending}
+                                  onClick={() => deleteForever(p)}
+                                  title="Delete permanently (owner)"
+                                >
+                                  <XCircle className="h-4 w-4 text-destructive" />
+                                </Button>
+                              )}
+                            </>
                           ) : (
                             <>
                               <EditDialog p={p} />

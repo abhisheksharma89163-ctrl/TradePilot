@@ -253,3 +253,28 @@ export async function restorePayment(id: string): Promise<ActionResult> {
     return { ok: false, error: (e as Error).message };
   }
 }
+
+// Owner-only: permanently remove a payment (and undo its effects first).
+export async function deletePaymentPermanent(id: string): Promise<ActionResult> {
+  try {
+    const { companyId, role } = await requireActiveCompany();
+    if (role !== "owner")
+      return { ok: false, error: "Only the company owner can permanently delete." };
+    const supabase = await createClient();
+
+    await reversePayment(supabase, companyId, id);
+    const { error } = await supabase
+      .from("payments")
+      .delete()
+      .eq("id", id)
+      .eq("company_id", companyId);
+    if (error) return { ok: false, error: error.message };
+
+    revalidatePath("/payments");
+    revalidatePath("/parties");
+    revalidatePath("/reports");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
