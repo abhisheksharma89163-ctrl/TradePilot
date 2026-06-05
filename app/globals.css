@@ -57,3 +57,24 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ---- Print: show only the report area, clean for PDF ---- */
+@media print {
+  aside,
+  header,
+  .no-print {
+    display: none !important;
+  }
+  main {
+    padding: 0 !important;
+  }
+  .print-area {
+    color: #000 !important;
+  }
+  .print-area table {
+    page-break-inside: auto;
+  }
+  .print-area tr {
+    page-break-inside: avoid;
+  }
+}

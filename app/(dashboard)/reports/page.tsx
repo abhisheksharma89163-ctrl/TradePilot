@@ -1,5 +1,68 @@
-import { ComingSoon } from "@/components/shared/coming-soon";
+import { createClient } from "@/lib/supabase/server";
+import { requireActiveCompany } from "@/lib/auth/company";
+import { ReportView, type SlipRow, type PaymentRow } from "./report-view";
 
-export default function Page() {
-  return <ComingSoon title="Reports" phase="MVP Week 5-6" />;
+export const dynamic = "force-dynamic";
+
+function defaultRange() {
+  const now = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth(), 1);
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  return { from: iso(first), to: iso(now) };
+}
+
+export default async function ReportsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string; to?: string }>;
+}) {
+  const sp = await searchParams;
+  const dr = defaultRange();
+  const from = sp.from ?? dr.from;
+  const to = sp.to ?? dr.to;
+
+  const { companyId } = await requireActiveCompany();
+  const supabase = await createClient();
+
+  const [{ data: company }, { data: slips }, { data: payments }] =
+    await Promise.all([
+      supabase.from("companies").select("name").eq("id", companyId).single(),
+      supabase
+        .from("weighment_slips")
+        .select(
+          "slip_date, slip_number, vehicle_number, gross_weight_kg, tare_weight_kg, net_weight_kg, remarks, custom_fields"
+        )
+        .eq("company_id", companyId)
+        .gte("slip_date", from)
+        .lte("slip_date", to)
+        .order("slip_date", { ascending: true }),
+      supabase
+        .from("payments")
+        .select(
+          "payment_date, payment_number, amount, payment_mode, bank_name, purpose"
+        )
+        .eq("company_id", companyId)
+        .gte("payment_date", from)
+        .lte("payment_date", to)
+        .order("payment_date", { ascending: true }),
+    ]);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">Reports</h1>
+        <p className="text-sm text-muted-foreground">
+          Pick a date range and download a clean, date-wise PDF.
+        </p>
+      </div>
+
+      <ReportView
+        companyName={company?.name ?? "Company"}
+        from={from}
+        to={to}
+        slips={(slips ?? []) as unknown as SlipRow[]}
+        payments={(payments ?? []) as unknown as PaymentRow[]}
+      />
+    </div>
+  );
 }
