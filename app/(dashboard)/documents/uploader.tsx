@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Upload, Loader2, ImageIcon, AlertTriangle, X } from "lucide-react";
+import { Upload, Loader2, ImageIcon, AlertTriangle, X, Camera, FileText } from "lucide-react";
 import { toast } from "sonner";
 import type { ExtractionResult } from "@/lib/ai/ocr/types";
 import { processDocument } from "./actions";
@@ -31,6 +31,7 @@ interface Item {
 
 export function DocumentUploader() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [running, setRunning] = useState(false);
 
@@ -104,22 +105,44 @@ export function DocumentUploader() {
   return (
     <div className="space-y-5">
       {/* Upload dropzone */}
-      <Card
-        className="cursor-pointer border-dashed transition-colors hover:bg-accent/30"
-        onClick={() => inputRef.current?.click()}
-      >
-        <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
           <Upload className="h-8 w-8 text-muted-foreground" />
-          <p className="font-medium">Tap to add slip photos</p>
+          <p className="font-medium">Add slips, cheques or receipts</p>
           <p className="text-sm text-muted-foreground">
-            Weighment slips, cheques, receipts — one or many at once. JPG / PNG.
+            Pick from your gallery or files, or take a photo. Images and PDFs,
+            one or many at once.
           </p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button onClick={() => inputRef.current?.click()}>
+              <Upload className="h-4 w-4" />
+              Choose from gallery / files
+            </Button>
+            <Button variant="outline" onClick={() => cameraRef.current?.click()}>
+              <Camera className="h-4 w-4" />
+              Take photo
+            </Button>
+          </div>
+
+          {/* General picker: gallery + files, images + PDF. No capture so the
+              phone shows gallery/files (not just the camera). */}
           <input
             ref={inputRef}
             type="file"
+            accept="image/*,application/pdf"
+            multiple
+            hidden
+            onChange={(e) => {
+              addFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          {/* Camera-only input for a quick photo. */}
+          <input
+            ref={cameraRef}
+            type="file"
             accept="image/*"
             capture="environment"
-            multiple
             hidden
             onChange={(e) => {
               addFiles(e.target.files);
@@ -171,12 +194,19 @@ export function DocumentUploader() {
         {items.map((it) => (
           <Card key={it.id} className="overflow-hidden">
             <div className="relative">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={it.previewUrl}
-                alt={it.file.name}
-                className="h-48 w-full object-contain bg-black/5"
-              />
+              {it.file.type === "application/pdf" ? (
+                <div className="flex h-48 w-full flex-col items-center justify-center gap-2 bg-black/5 text-muted-foreground">
+                  <FileText className="h-10 w-10" />
+                  <span className="max-w-[80%] truncate text-xs">{it.file.name}</span>
+                </div>
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={it.previewUrl}
+                  alt={it.file.name}
+                  className="h-48 w-full object-contain bg-black/5"
+                />
+              )}
               <Button
                 variant="secondary"
                 size="icon"

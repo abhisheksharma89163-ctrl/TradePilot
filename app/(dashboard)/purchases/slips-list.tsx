@@ -23,9 +23,11 @@ import { formatINR } from "@/lib/utils";
 export function SlipsList({
   slips,
   isOwner,
+  isSale = false,
 }: {
   slips: SlipRow[];
   isOwner: boolean;
+  isSale?: boolean;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -175,7 +177,7 @@ export function SlipsList({
                           </>
                         ) : (
                           <>
-                            <SlipEditForm slip={s} />
+                            <SlipEditForm slip={s} isSale={isSale} />
                             <Button
                               variant="ghost"
                               size="icon"

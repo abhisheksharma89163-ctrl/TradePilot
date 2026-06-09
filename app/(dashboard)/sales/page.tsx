@@ -72,6 +72,7 @@ export default async function SalesPage() {
         <SlipsList
           slips={(slips ?? []) as unknown as SlipRow[]}
           isOwner={role === "owner"}
+          isSale
         />
       </div>
     </div>

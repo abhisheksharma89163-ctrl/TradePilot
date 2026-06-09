@@ -69,7 +69,13 @@ function Field({
   );
 }
 
-export function SlipEditForm({ slip }: { slip: SlipRow }) {
+export function SlipEditForm({
+  slip,
+  isSale = false,
+}: {
+  slip: SlipRow;
+  isSale?: boolean;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -134,7 +140,12 @@ export function SlipEditForm({ slip }: { slip: SlipRow }) {
             </div>
             <Field label="Goods value (₹)" name="amount" value={amount} onChange={setAmount} />
             <Field label="− Freight (₹)" name="freight" value={freight} onChange={setFreight} />
-            <Field label="− Advance paid (₹)" name="advance_paid" value={advance} onChange={setAdvance} />
+            <Field
+              label={isSale ? "− Advance received (₹)" : "− Advance paid (₹)"}
+              name="advance_paid"
+              value={advance}
+              onChange={setAdvance}
+            />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="remarks">Remarks</Label>
@@ -142,7 +153,9 @@ export function SlipEditForm({ slip }: { slip: SlipRow }) {
           </div>
           {balance != null && (
             <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
-              <span className="text-sm font-medium">Balance to pay</span>
+              <span className="text-sm font-medium">
+                {isSale ? "Balance to receive" : "Balance to pay"}
+              </span>
               <span className="text-lg font-bold">{formatINR(balance)}</span>
             </div>
           )}

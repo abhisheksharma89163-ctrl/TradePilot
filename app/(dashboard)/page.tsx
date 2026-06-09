@@ -2,9 +2,9 @@ import Link from "next/link";
 import { format } from "date-fns";
 import {
   Users,
-  Boxes,
   ShoppingCart,
   Wallet,
+  TrendingUp,
   AlertTriangle,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
@@ -32,14 +32,19 @@ export default async function DashboardPage() {
 
   const today = new Date().toISOString().slice(0, 10);
 
-  const [parties, products, slips, { data: outstanding }, { data: parties2 }] =
+  const [parties, slips, { data: outstanding }, { data: receivable }, { data: parties2 }] =
     await Promise.all([
       count(supabase, "parties", companyId),
-      count(supabase, "products", companyId),
       count(supabase, "weighment_slips", companyId),
       supabase
         .from("purchase_entries")
         .select("supplier_id, balance_due, due_date")
+        .eq("company_id", companyId)
+        .eq("is_cancelled", false)
+        .gt("balance_due", 0),
+      supabase
+        .from("sale_entries")
+        .select("balance_due")
         .eq("company_id", companyId)
         .eq("is_cancelled", false)
         .gt("balance_due", 0),
@@ -51,6 +56,10 @@ export default async function DashboardPage() {
     (s, e) => s + Number(e.balance_due),
     0
   );
+  const totalToReceive = (receivable ?? []).reduce(
+    (s, e) => s + Number(e.balance_due),
+    0
+  );
   const overdue = (outstanding ?? []).filter(
     (e) => e.due_date && e.due_date < today
   );
@@ -58,7 +67,6 @@ export default async function DashboardPage() {
 
   const cards = [
     { label: "Parties", value: String(parties), href: "/parties", icon: Users },
-    { label: "Products", value: String(products), href: "/products", icon: Boxes },
     {
       label: "Slips",
       value: String(slips),
@@ -70,7 +78,14 @@ export default async function DashboardPage() {
       value: formatINR(totalToPay),
       href: "/payments",
       icon: Wallet,
-      accent: true,
+      accent: "pay" as const,
+    },
+    {
+      label: "To Receive",
+      value: formatINR(totalToReceive),
+      href: "/sales",
+      icon: TrendingUp,
+      accent: "receive" as const,
     },
   ];
 
@@ -96,9 +111,11 @@ export default async function DashboardPage() {
               <CardContent>
                 <div
                   className={
-                    accent
+                    accent === "pay"
                       ? "text-2xl font-bold text-destructive"
-                      : "text-3xl font-bold"
+                      : accent === "receive"
+                        ? "text-2xl font-bold text-amber-600"
+                        : "text-3xl font-bold"
                   }
                 >
                   {value}

@@ -23,7 +23,7 @@ interface Entry {
 }
 
 const EXAMPLE =
-  "e.g. Satish Sharma, CG04NY1473, Bhusa, gross 19370 tare 9770 net 9600, rate 8.40, 03-05-26";
+  "e.g. <party name>, <vehicle no>, Bhusa, gross 19370 tare 9770 net 9600, rate 8.40, 03-06-26";
 
 export function PasteEntry() {
   const [text, setText] = useState("");
